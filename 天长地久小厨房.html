@@ -1,0 +1,2386 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#FAF4E9">
+<title>天长地久小厨房 · 点菜 / 今日菜单 / 智能冰箱</title>
+
+<!--
+  ============================================================================
+  天长地久小厨房 — 家庭共享食谱单页应用（原型 · 单文件 · 无构建）
+  技术栈：HTML5 + 手写 CSS3 + 原生 JavaScript（无 React/Vue）
+  ----------------------------------------------------------------------------
+  【为什么没按原建议引 Tailwind CDN】
+    Tailwind Play CDN 需要在浏览器端做运行时编译：首屏会闪一下未样式内容，
+    且控制台固定打印 "cdn.tailwindcss.com should not be used in production" 警告。
+    本原型改成 :root 设计变量 + CSS Grid 手写样式，色板仍是你指定的
+    米白 / 暖橙 / 鼠尾草绿，改一处全站生效，双击即开、离线可用。
+
+  【源码地图】
+    CSS  0 设计系统变量        1 页头/按钮        2 底导 + 分类竖列
+         3 菜品卡片 + 随机选    4 今日菜单/采购单  5 智能冰箱
+         6 详情抽屉 + 弹窗      7 响应式 + 无障碍
+    JS   A 预置数据 Seed        B Store 数据层     C Sync 跨窗口同步
+         D Compare 比对引擎     E Recommend 推荐   F View 渲染
+         G Action 交互/编辑     H 启动
+  ============================================================================
+-->
+
+<style>
+/* ==========================================================================
+   0. 设计系统 —— 色板 / 字体 / 阴影
+   视觉母题：厨房墙砖（极淡方格底纹）+ 手写菜单纸的勾选框与虚线
+   ========================================================================== */
+:root{
+  --paper:#FAF4E9;  --paper-2:#F2E8D8;  --tile:#E9DCC5;  --card:#FFFCF6;
+  --ink:#241C17;    --ink-2:#57493F;    --ink-3:#6A5E52; --line:#DED0B9;
+  /* ink-3 用作次要文字：#6A5E52 在米白/暖橙底/鼠尾草绿底上均 ≥4.6:1（WCAG AA 小字号）*/
+  --amber:#D26A24;  --amber-press:#A04A12; --amber-soft:#F8E2CD;
+  /* 白字只放在 amber-btn(#B5541A, 对白色 4.94:1) 或更深的 amber-btn-h 上；
+     amber-press 用于"橙色的文字"，amber 用于纯色块/描边，不承载白字。*/
+  --amber-btn:#B5541A; --amber-btn-h:#96440E;
+  --sage:#7A9A6A;   --sage-deep:#43613D;   --sage-soft:#DFE9D6;
+
+  /* 比对三态：绿=充足 / 黄=不够 / 红=缺货 */
+  --ok:#2F6B41;    --ok-bg:#DCEDE1;   --ok-line:#A6CDB2;
+  --warn:#8C5E0B;  --warn-bg:#FBEFD3; --warn-line:#E1C382;
+  --bad:#A02A1C;   --bad-bg:#FADFDA;  --bad-line:#E5AEA3;
+
+  --r-lg:22px; --r-md:14px; --r-sm:10px;
+  --sh-1:0 1px 2px rgba(70,45,20,.07), 0 10px 24px -14px rgba(70,45,20,.22);
+  --sh-2:0 2px 8px rgba(70,45,20,.12), 0 26px 56px -20px rgba(50,30,10,.4);
+  --ease:cubic-bezier(.22,.72,.28,1);
+  --nav-h:64px;
+  --font-display:"Songti SC","Noto Serif CJK SC","STSong","SimSun",Georgia,serif;
+  --font-body:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;}
+body{
+  margin:0; font-family:var(--font-body); font-size:17px; line-height:1.7;
+  color:var(--ink); background-color:var(--paper);
+  /* 墙砖底纹：低透明度方格，只负责"这是厨房"，不与内容抢注意力 */
+  background-image:linear-gradient(var(--tile) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--tile) 1px,transparent 1px);
+  background-size:132px 132px; background-position:-1px -1px;
+  min-height:100vh; padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  text-rendering:optimizeLegibility;
+}
+body::before{ /* 暖光晕：把瓷砖焐热 */
+  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(70% 46% at 10% -8%,rgba(210,106,36,.11),transparent 62%),
+    radial-gradient(56% 40% at 97% 3%,rgba(122,154,106,.13),transparent 60%),
+    linear-gradient(180deg,rgba(250,244,233,.7),rgba(250,244,233,.95) 42%);
+}
+img{max-width:100%;display:block;}
+button,input,select,textarea{font:inherit;color:inherit;}
+button{cursor:pointer;background:none;border:none;padding:0;}
+h1,h2,h3,h4{font-family:var(--font-display);font-weight:700;letter-spacing:-.012em;margin:0;text-wrap:balance;}
+p{margin:0;text-wrap:pretty;}
+ul,ol{margin:0;padding:0;list-style:none;}
+:focus-visible{outline:3px solid var(--amber);outline-offset:3px;border-radius:6px;}
+::selection{background:var(--amber-soft);}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+.wrap{position:relative;z-index:1;width:100%;max-width:1280px;margin:0 auto;padding:0 clamp(14px,3vw,26px);}
+
+/* ==========================================================================
+   1. 页头 + 按钮 + 表单控件
+   ========================================================================== */
+.masthead{
+  position:sticky;top:0;z-index:40;
+  background:rgba(255,252,246,.9);backdrop-filter:blur(10px) saturate(1.2);
+  border-bottom:2px solid var(--ink);
+}
+.mh-row{display:flex;align-items:center;gap:14px;min-height:66px;padding:8px 0;flex-wrap:wrap;}
+.brand{display:flex;align-items:baseline;gap:10px;flex:0 1 auto;min-width:0;}
+.brand-name{font-family:var(--font-display);font-size:clamp(19px,2.6vw,26px);letter-spacing:-.025em;white-space:nowrap;}
+.brand-name em{font-style:normal;color:var(--amber);}
+.brand-sub{font-size:13px;letter-spacing:.1em;color:var(--ink-2);white-space:nowrap;}
+.mh-right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+/* 成员头像：区分"这条记录是谁加的" */
+.me-chip{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 5px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);}
+.me-chip .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:700;color:#fff;font-family:var(--font-display);}
+.me-chip .me-n{font-size:14px;font-weight:600;}
+.me-chip .me-swap{font-size:12.5px;color:var(--ink-2);border-left:1px solid var(--line);padding-left:8px;}
+.me-chip:hover{border-color:var(--ink-3);}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:46px;padding:0 17px;border-radius:999px;font-size:15.5px;font-weight:600;
+  border:1.5px solid var(--ink);background:var(--card);color:var(--ink);white-space:nowrap;
+  transition:transform .18s var(--ease),background .18s var(--ease),box-shadow .18s var(--ease),color .18s;
+}
+.btn:hover{background:var(--paper-2);transform:translateY(-1px);box-shadow:var(--sh-1);}
+.btn:active{transform:translateY(1px);}
+.btn.primary{background:var(--amber-btn);border-color:var(--amber-btn-h);color:#fff;}
+.btn.primary:hover{background:var(--amber-btn-h);border-color:var(--amber-btn-h);}
+.btn.sage{background:var(--sage-deep);border-color:var(--sage-deep);color:#fff;}
+.btn.sage:hover{background:#35502f;}
+.btn.ghost{border-color:var(--line);background:transparent;color:var(--ink-2);font-weight:500;}
+.btn.ghost:hover{color:var(--ink);border-color:var(--ink-3);background:var(--paper-2);}
+.btn.sm{min-height:38px;padding:0 13px;font-size:14px;border-width:1.5px;}
+.btn.icon{width:44px;padding:0;}
+.btn.block{width:100%;}
+.btn.danger{border-color:var(--bad-line);color:var(--bad);background:var(--bad-bg);}
+.btn.danger:hover{background:var(--bad);color:#fff;border-color:var(--bad);}
+.btn:disabled{opacity:.42;cursor:not-allowed;transform:none;box-shadow:none;}
+.btn svg,.social svg{width:17px;height:17px;flex:none;}
+
+.field{display:flex;flex-direction:column;gap:6px;flex:1 1 150px;min-width:0;}
+.field label{font-size:12.5px;font-weight:700;letter-spacing:.1em;color:var(--ink-3);}
+.field input,.field select,.field textarea{
+  width:100%;min-height:46px;padding:0 13px;border-radius:var(--r-md);
+  border:1.5px solid var(--line);background:var(--paper);font-size:16px;
+}
+.field textarea{min-height:84px;padding:11px 13px;resize:vertical;line-height:1.6;}
+.field input:focus,.field select:focus,.field textarea:focus{background:var(--card);border-color:var(--ink-3);}
+/* 分享/复制出来的纯文本块：等宽无关，靠留白与虚线边框像一张手写的便签 */
+.share-pre{white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:15px;line-height:1.75;
+  margin:0;padding:14px 16px;background:var(--card);border:1.5px dashed var(--line);border-radius:var(--r-md);
+  max-height:46vh;overflow-y:auto;color:var(--ink);}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+.form-grid .span2{grid-column:1/-1;}
+
+/* ==========================================================================
+   2. 底部导航 + 视图容器 + 分类竖列
+   ========================================================================== */
+.bottom-nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  background:rgba(255,252,246,.94);backdrop-filter:blur(12px) saturate(1.3);
+  border-top:2px solid var(--ink);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.nav-inner{display:grid;grid-template-columns:repeat(4,1fr);max-width:640px;margin:0 auto;}
+.nav-tab{
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  min-height:var(--nav-h);color:var(--ink-2);font-size:13px;font-weight:600;letter-spacing:.02em;
+  transition:color .2s var(--ease);
+}
+.nav-tab svg{width:24px;height:24px;}
+.nav-tab:hover{color:var(--ink-2);}
+.nav-tab[aria-current="page"]{color:var(--amber-press);}
+.nav-tab[aria-current="page"]::before{
+  content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:38px;height:3px;border-radius:0 0 4px 4px;background:var(--amber);
+}
+.nav-badge{
+  position:absolute;top:9px;right:calc(50% - 26px);min-width:19px;height:19px;padding:0 5px;
+  border-radius:999px;background:var(--bad);color:#fff;font-size:11.5px;font-weight:700;
+  display:grid;place-items:center;font-variant-numeric:tabular-nums;box-shadow:0 1px 3px rgba(0,0,0,.2);
+}
+.nav-badge.zero{display:none;}
+
+.view{display:none;padding:clamp(16px,2.4vw,26px) 0 40px;}
+.view.on{display:block;animation:fade .3s var(--ease);}
+@keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+
+.v-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 18px;margin-bottom:14px;}
+.v-title{font-size:clamp(24px,4.4vw,34px);letter-spacing:-.025em;}
+.v-sub{font-size:14.5px;color:var(--ink-2);margin-top:4px;max-width:62ch;}
+.v-meta{margin-left:auto;font-size:13.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;}
+
+/* 分类竖列（桌面）/ 横向滚动条（手机） */
+.cat-list{display:flex;flex-direction:column;gap:5px;}
+.cat-item{
+  position:relative;width:100%;min-height:50px;display:flex;align-items:center;gap:11px;
+  padding:9px 13px;border-radius:15px;text-align:left;font-size:18px;font-weight:600;color:var(--ink-2);
+  border:1.5px solid transparent;transition:background .2s var(--ease),color .2s,border-color .2s;
+}
+.cat-item .sw{width:10px;height:10px;border-radius:3px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1);}
+.cat-item .cn{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cat-item .cc{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums;}
+.cat-item:hover{background:rgba(36,28,23,.06);color:var(--ink);}
+.cat-item[aria-selected="true"]{background:var(--card);color:var(--amber-press);box-shadow:var(--sh-1);}
+.cat-item[aria-selected="true"]::before{content:"";position:absolute;left:-1px;top:12px;bottom:12px;width:4px;border-radius:4px;background:var(--amber);}
+.dice{
+  display:flex;align-items:center;justify-content:center;gap:9px;min-height:54px;width:100%;
+  border-radius:16px;background:var(--ink);color:var(--paper);font-size:16.5px;font-weight:700;
+  box-shadow:var(--sh-1);transition:transform .2s var(--ease),background .2s;
+}
+.dice:hover{transform:translateY(-2px);background:#111;}
+.dice svg{width:21px;height:21px;}
+
+.searchbar{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px;}
+.search{position:relative;flex:1 1 220px;min-width:180px;}
+.search input{width:100%;min-height:46px;padding:0 14px 0 42px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);font-size:16px;}
+.search input::placeholder{color:var(--ink-3);}
+.search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--ink-3);}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 15px;border-radius:999px;border:1.5px solid var(--line);background:transparent;font-size:14.5px;color:var(--ink-2);transition:all .18s var(--ease);}
+.chip:hover{border-color:var(--ink-3);color:var(--ink);}
+.chip[aria-pressed="true"]{background:var(--sage-soft);border-color:var(--sage-deep);color:var(--sage-deep);font-weight:700;}
+.chip svg{width:16px;height:16px;}
+
+/* ==========================================================================
+   2b. 点菜页分栏（左 27% 浅灰 / 右白）+ 锚点分组 + FAB
+   ========================================================================== */
+.menu-shell{display:grid;grid-template-columns:clamp(180px,27%,300px) minmax(0,1fr);gap:0;align-items:start;
+  border:1.5px solid var(--line);background:var(--card);box-shadow:var(--sh-1);border-radius:var(--r-lg);}
+/* 注意：这里不能用 overflow:hidden —— 祖先设了它，内部的 position:sticky（左侧分类栏、吸顶分组标题）
+   会全部失效。所以圆角分给左右两栏自己做。 */
+.side{background:var(--paper-2);border-radius:var(--r-lg) 0 0 0;border-right:2px solid var(--tile);padding:14px 12px 18px;position:sticky;top:80px;align-self:start;max-height:calc(100vh - 80px - var(--nav-h) - 24px);overflow-y:auto;overscroll-behavior:contain;}
+.side-title{font-size:11.5px;letter-spacing:.2em;color:var(--ink-3);font-weight:700;padding:0 6px 10px;}
+.cat-item[aria-selected="true"] .cn{color:var(--amber-press);}
+.side-tools{display:flex;flex-direction:column;gap:7px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);}
+.content{padding:0 0 10px;min-height:340px;}
+.content .searchbar:first-child{border-radius:0 var(--r-lg) 0 0;}
+.content .grp:last-child{border-radius:0 0 var(--r-lg) var(--r-lg);overflow:hidden;}
+/* 分类锚点标题：右侧滚动时钉住，点左侧分类可平滑跳到这里 */
+.grp{scroll-margin-top:132px;}
+/* 吸顶分组标题下移让开 sticky 页头（约 70px），否则标题会被页头压住 */
+.grp-h{position:sticky;top:70px;z-index:5;display:flex;align-items:baseline;gap:10px;
+  padding:12px 16px;background:var(--card);border-bottom:1.5px solid var(--line);}
+.grp-h h3{font-size:19px;}
+.grp-h .gc{font-size:12.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;}
+.grp-h .gd{font-size:13px;color:var(--ink-2);margin-left:auto;text-align:right;max-width:46%;}
+.grp .grid{padding:16px;}
+.fab{position:fixed;right:20px;bottom:calc(var(--nav-h) + 66px);z-index:52;display:inline-flex;align-items:center;gap:9px;
+  min-height:52px;padding:0 22px;border-radius:999px;background:var(--amber-btn);color:#fff;font-size:16px;font-weight:700;
+  border:1.5px solid var(--amber-press);box-shadow:0 6px 20px -4px rgba(180,90,20,.55);transition:transform .2s var(--ease),background .2s;}
+.fab:hover{transform:translateY(-3px) scale(1.02);background:var(--amber-btn-h);}
+.fab svg{width:20px;height:20px;}
+/* 卡片上"谁做的这道菜" */
+.by-av{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-2);}
+.by-av i{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:#fff;font-style:normal;}
+/* 自定义菜品标记 */
+.tag.mine{background:var(--sage-soft);color:var(--sage-deep);border:1px solid var(--sage);}
+
+/* 冰箱推荐：横向滑动卡片 */
+.rec-rail{display:flex;gap:12px;overflow-x:auto;padding:4px 2px 14px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+.rec-rail::-webkit-scrollbar{height:6px;}
+.rec-rail::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px;}
+.rec-card{flex:none;width:216px;scroll-snap-align:start;background:var(--card);border:1.5px solid var(--line);
+  border-radius:var(--r-md);overflow:hidden;text-align:left;display:flex;flex-direction:column;transition:transform .2s var(--ease),border-color .2s,box-shadow .2s;}
+.rec-card:hover{transform:translateY(-3px);border-color:var(--ink-3);box-shadow:var(--sh-1);}
+.rec-card .rc-ph{position:relative;aspect-ratio:16/11;background:var(--paper-2);}
+.rec-card img{width:100%;height:100%;object-fit:cover;}
+.rec-card .rc-score{position:absolute;top:8px;right:8px;background:rgba(255,252,246,.94);border-radius:8px;padding:3px 8px;font-size:12px;font-weight:700;color:var(--sage-deep);}
+.rec-card .rc-b{padding:11px 12px 12px;}
+.rec-card .rc-n{font-size:16.5px;font-weight:700;line-height:1.3;font-family:var(--font-display);}
+.rec-card .rc-x{font-size:12.5px;color:var(--ink-2);margin-top:4px;line-height:1.5}
+
+/* 我的（Profile） */
+.prof-shell{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;align-items:start;}
+.mem{display:flex;align-items:center;gap:12px;padding:12px;border-radius:var(--r-md);border:1.5px solid var(--line);background:var(--paper);margin-bottom:8px;width:100%;text-align:left;transition:all .2s var(--ease);}
+.mem:hover{border-color:var(--ink-3);background:var(--card);}
+.mem[aria-pressed="true"]{border-color:var(--amber);background:var(--amber-soft);box-shadow:var(--sh-1);}
+.mem .av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-size:16px;font-weight:700;color:#fff;font-family:var(--font-display);flex:none;}
+.mem > span:nth-child(2){flex:1 1 auto;min-width:0;}
+.mem .m-n{font-size:17px;font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mem .m-s{font-size:12.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px;margin-top:2px;}
+.mem .on-dot{width:7px;height:7px;border-radius:50%;background:var(--sage);flex:none;}
+.mem .on-dot.off{background:var(--ink-3);opacity:.45;}
+.mem .m-go{margin-left:auto;flex:none;font-size:13px;color:var(--ink-3);}
+.mem[aria-pressed="true"] .m-go{color:var(--amber-press);font-weight:700;}
+.mem-add{display:flex;gap:8px;margin-top:10px;}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;}
+.stat-cell{padding:14px 12px;border-radius:var(--r-md);background:var(--paper);border:1.5px solid var(--line);text-align:center;}
+.stat-cell b{display:block;font-family:var(--font-display);font-size:29px;line-height:1.1;color:var(--amber-press);font-variant-numeric:tabular-nums;}
+.stat-cell span{font-size:13px;color:var(--ink-3);letter-spacing:.05em;}
+.top-dish{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px dashed var(--line);}
+.top-dish:last-child{border-bottom:none;}
+.top-dish .rank{width:24px;height:24px;border-radius:7px;background:var(--ink);color:var(--paper);font-size:12.5px;font-weight:700;display:grid;place-items:center;flex:none;font-family:var(--font-display);}
+.top-dish .rank.n2{background:var(--ink-2);} .top-dish .rank.n3{background:var(--ink-3);}
+.bar{height:6px;border-radius:6px;background:var(--paper-2);overflow:hidden;margin-top:5px;}
+.bar i{display:block;height:100%;background:var(--sage);border-radius:6px;}
+.danger-zone{border-color:var(--bad-line);}
+.danger-zone .panel-h{border-bottom-color:var(--bad);}
+
+/* ==========================================================================
+   3. 菜品卡片 + 随机选弹窗
+   ========================================================================== */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(246px,1fr));gap:clamp(14px,2vw,22px);}
+.dish{
+  position:relative;display:flex;flex-direction:column;background:var(--card);
+  border:1.5px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-1);
+  transition:transform .24s var(--ease),box-shadow .24s var(--ease),border-color .24s;
+}
+.dish:hover{transform:translateY(-4px);box-shadow:var(--sh-2);border-color:var(--ink-3);}
+.dish.in-order{border-color:var(--sage-deep);box-shadow:0 0 0 1.5px var(--sage-deep),var(--sh-1);}
+.ph{position:relative;aspect-ratio:4/3;background:var(--paper-2);overflow:hidden;border-bottom:1px solid var(--line);}
+.ph img{width:100%;height:100%;object-fit:cover;transition:transform .5s var(--ease);}
+.dish:hover .ph img{transform:scale(1.05);}
+.ph::after{ /* 图片降级：外链失败时露出底色 + 菜名，不破版 */
+  content:attr(data-fb);position:absolute;inset:auto 0 0 0;padding:10px 12px;z-index:0;
+  font-family:var(--font-display);font-size:15px;color:var(--ink-2);
+}
+/* 占位块的柔光：按 data-hue 散出一团暖色，让整片降级不至于都是同一个灰块 */
+.ph::before{content:"";position:absolute;inset:0;z-index:0;opacity:.55;
+  background:radial-gradient(120% 90% at 26% 22%, hsl(var(--hue,32) 62% 82%), transparent 62%),
+             repeating-linear-gradient(135deg, transparent 0 13px, hsl(var(--hue,32) 40% 76% / .35) 13px 14px);}
+.ph img{position:relative;z-index:1;opacity:0;transition:opacity .35s var(--ease),transform .5s var(--ease);}
+.ph img.loaded{opacity:1;}
+.tag{position:absolute;top:10px;left:10px;z-index:2;padding:4px 10px;border-radius:8px;background:rgba(255,252,246,.94);font-size:12px;font-weight:700;letter-spacing:.05em;box-shadow:0 1px 3px rgba(0,0,0,.14);}
+.fav{position:absolute;top:8px;right:8px;z-index:2;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:rgba(255,252,246,.94);color:var(--ink-3);box-shadow:0 1px 4px rgba(0,0,0,.16);transition:transform .18s var(--ease),color .18s;}
+.fav:hover{transform:scale(1.1);color:var(--bad);}
+.fav[aria-pressed="true"]{color:var(--bad);}
+.fav[aria-pressed="true"] svg path{fill:currentColor;}
+.fav svg{width:20px;height:20px;}
+.dish-body{padding:14px 15px 15px;display:flex;flex-direction:column;gap:7px;flex:1;}
+.dish-name{font-size:20px;line-height:1.25;}
+.dish-desc{font-size:14px;color:var(--ink-2);line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+/* 食材预览：前 3 种主要食材 + 缺料上色 */
+.ing-prev{display:flex;flex-wrap:wrap;gap:5px;}
+.ing-prev span{font-size:12.5px;padding:3px 8px;border-radius:7px;border:1px solid;line-height:1.4;}
+.ing-prev .g{color:var(--ok);background:var(--ok-bg);border-color:var(--ok-line);}
+.ing-prev .r{color:var(--bad);background:var(--bad-bg);border-color:var(--bad-line);}
+.ing-prev .y{color:var(--warn);background:var(--warn-bg);border-color:var(--warn-line);}
+.ing-prev .m{color:var(--ink-3);background:var(--paper);border-color:var(--line);}
+.dish-foot{margin-top:auto;padding-top:11px;border-top:1px dashed var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.stat{font-size:12.5px;color:var(--ink-3);display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums;}
+.stat svg{width:14px;height:14px;}
+.add{margin-left:auto;}
+.add[aria-pressed="true"]{background:var(--sage-deep);border-color:var(--sage-deep);color:#fff;}
+.add[aria-pressed="true"]:hover{background:#35502f;}
+
+/* 随机选：转盘式滚动 + 定格 */
+.wheel{padding:6px 0 2px;text-align:center;}
+.wheel-name{
+  font-family:var(--font-display);font-size:clamp(32px,8vw,50px);font-weight:700;letter-spacing:-.03em;
+  min-height:1.25em;display:grid;place-items:center;color:var(--ink);
+}
+.wheel-name.spin{animation:blur .1s steps(2) infinite;color:var(--amber);}
+@keyframes blur{50%{opacity:.55;}}
+.wheel-sub{font-size:14.5px;color:var(--ink-2);margin-top:10px;min-height:1.6em;}
+.wheel-hint{margin-top:16px;font-size:13px;color:var(--ink-3);}
+
+/* ==========================================================================
+   4. 今日菜单（订单）+ 采购清单
+   ========================================================================== */
+.order-shell{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(16px,2.4vw,26px);align-items:start;}
+.panel{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r-lg);padding:clamp(15px,2.2vw,24px);box-shadow:var(--sh-1);margin-bottom:18px;}
+.panel-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:10px;margin-bottom:14px;border-bottom:2px solid var(--ink);}
+.panel-h h3{font-size:20px;}
+.panel-h .h-note{font-family:var(--font-body);font-size:13px;color:var(--ink-3);font-weight:500;margin-left:auto;text-align:right;}
+.panel-h svg{width:20px;height:20px;color:var(--sage-deep);}
+.panel-tip{font-size:14px;color:var(--ink-2);margin:-6px 0 14px;line-height:1.65;}
+
+.order-row{display:flex;gap:12px;align-items:center;padding:11px 0;border-bottom:1px dashed var(--line);}
+.order-row:last-child{border-bottom:none;}
+.order-row img{width:66px;height:66px;border-radius:var(--r-md);object-fit:cover;background:var(--paper-2);flex:none;}
+.o-main{flex:1 1 auto;min-width:0;}
+.o-name{font-size:17.5px;font-weight:700;line-height:1.35;}
+.o-sub{font-size:13px;color:var(--ink-3);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.o-sub .by{display:inline-flex;align-items:center;gap:5px;}
+.o-sub .by i{width:18px;height:18px;border-radius:50%;display:inline-grid;place-items:center;font-size:10.5px;font-weight:700;color:#fff;font-style:normal;}
+.o-acts{display:flex;gap:6px;flex:none;align-items:center;}
+.o-count{min-width:34px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums;font-size:16px;}
+.empty{padding:46px 20px;text-align:center;border:1.5px dashed var(--line);border-radius:var(--r-lg);background:rgba(255,252,246,.55);}
+.empty .il{font-family:var(--font-display);font-size:46px;line-height:1;color:var(--sage);margin-bottom:12px;}
+.empty h3{font-size:21px;margin-bottom:8px;}
+.empty p{font-size:14.5px;color:var(--ink-2);margin-bottom:18px;}
+
+/* 采购清单：聚合 + 比对 */
+.shop-tabs{display:flex;gap:6px;margin-bottom:14px;}
+.shop-tabs .chip{min-height:40px;font-size:14px;}
+.shop-item{display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:var(--r-md);border:1.5px solid;margin-bottom:8px;background:var(--card);}
+.shop-item.need{border-color:var(--bad-line);background:var(--bad-bg);}
+.shop-item.enough{border-color:var(--ok-line);background:var(--ok-bg);}
+.shop-mark{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none;border:1.5px solid;}
+.shop-item.need .shop-mark{background:#fff;color:var(--bad);border-color:var(--bad-line);}
+.shop-item.enough .shop-mark{background:#fff;color:var(--ok);border-color:var(--ok-line);}
+.shop-mark svg{width:17px;height:17px;}
+.shop-main{flex:1 1 auto;min-width:0;}
+.shop-name{font-size:17px;font-weight:700;}
+.shop-meta{font-size:13.5px;color:var(--ink-2);margin-top:2px;}
+.shop-meta b{font-variant-numeric:tabular-nums;}
+.from-chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;}
+.from-chips i{font-style:normal;font-size:12px;padding:2px 7px;border-radius:6px;background:rgba(36,28,23,.07);color:var(--ink-2);}
+.summary-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px;}
+.sum{font-size:14px;font-weight:700;padding:7px 14px;border-radius:999px;border:1.5px solid;}
+.sum.need{color:var(--bad);background:var(--bad-bg);border-color:var(--bad-line);}
+.sum.enough{color:var(--ok);background:var(--ok-bg);border-color:var(--ok-line);}
+
+/* ==========================================================================
+   5. 智能冰箱：库存行 / 保质期 / 推荐
+   ========================================================================== */
+.pantry-shell{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:clamp(16px,2.4vw,26px);align-items:start;}
+.stock-rows{display:grid;gap:8px;}
+.stock-row{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:var(--r-md);background:var(--paper);border:1.5px solid var(--line);transition:background .18s,border-color .18s;}
+.stock-row:hover{background:var(--paper-2);}
+.stock-row.exp{border-color:var(--bad-line);background:var(--bad-bg);}
+.stock-row.soon{border-color:var(--warn-line);background:var(--warn-bg);}
+.s-name{flex:1 1 auto;min-width:0;font-size:16.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.s-grp{font-size:11.5px;color:var(--ink-3);border:1px solid var(--line);border-radius:6px;padding:1px 6px;flex:none;}
+.s-qty{font-size:13.5px;font-weight:700;color:var(--sage-deep);background:var(--sage-soft);padding:3px 9px;border-radius:8px;flex:none;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.s-exp{font-size:12.5px;font-weight:700;padding:3px 8px;border-radius:8px;flex:none;white-space:nowrap;}
+.s-exp.fresh{color:var(--ink-3);background:rgba(36,28,23,.06);}
+.s-exp.soon{color:var(--warn);background:#fff;border:1px solid var(--warn-line);}
+.s-exp.bad{color:#fff;background:var(--bad);}
+.qty{display:flex;align-items:center;gap:2px;flex:none;}
+.qty button{width:32px;height:32px;border-radius:9px;border:1.5px solid var(--line);display:grid;place-items:center;color:var(--ink-2);background:var(--card);font-size:17px;line-height:1;}
+.qty button:hover{border-color:var(--ink);color:var(--ink);}
+.s-edit{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--ink-3);flex:none;}
+.s-edit:hover{color:var(--ink);background:var(--paper-2);}
+.s-del{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--ink-3);flex:none;}
+.s-del:hover{color:var(--bad);background:var(--bad-bg);}
+.s-del svg,.s-edit svg{width:16px;height:16px;}
+
+.rec-list{display:grid;gap:12px;}
+.rec{display:flex;gap:12px;align-items:center;padding:11px;border-radius:var(--r-md);border:1.5px solid var(--line);background:var(--paper);text-align:left;width:100%;transition:all .2s var(--ease);}
+.rec:hover{background:var(--card);border-color:var(--ink-3);transform:translateX(3px);}
+.rec img{width:62px;height:62px;border-radius:11px;object-fit:cover;background:var(--paper-2);flex:none;}
+.rec-m{flex:1 1 auto;min-width:0;}
+.rec-n{font-size:16.5px;font-weight:700;line-height:1.3;}
+.rec-r{font-size:12.5px;color:var(--ink-2);margin-top:3px;}
+.score{flex:none;text-align:center;}
+.score b{display:block;font-family:var(--font-display);font-size:21px;line-height:1;color:var(--sage-deep);font-variant-numeric:tabular-nums;}
+.score span{font-size:10.5px;letter-spacing:.08em;color:var(--ink-3);}
+
+/* ==========================================================================
+   6. 详情抽屉 + 弹窗 + Toast + 同步条
+   ========================================================================== */
+.scrim{position:fixed;inset:0;z-index:60;background:rgba(45,28,15,.52);opacity:0;visibility:hidden;transition:opacity .28s var(--ease),visibility .28s;backdrop-filter:blur(2px);}
+.scrim.on{opacity:1;visibility:visible;}
+.sheet{position:fixed;z-index:70;top:0;right:0;bottom:0;width:min(660px,100%);background:var(--paper);display:flex;flex-direction:column;transform:translateX(101%);transition:transform .36s var(--ease);border-left:2px solid var(--ink);box-shadow:var(--sh-2);}
+.sheet.on{transform:none;}
+body.locked{overflow:hidden;}
+.sheet[hidden]{display:none;}          /* 否则 display:flex 会盖掉 hidden，关掉的抽屉仍可被点击命中 */
+.sheet-h{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--card);border-bottom:1px solid var(--line);flex:none;}
+.sheet-h .st{font-size:13px;letter-spacing:.16em;font-weight:700;color:var(--ink-3);}
+.sheet-h .sa{margin-left:auto;display:flex;gap:7px;}
+.sheet-b{overflow-y:auto;overscroll-behavior:contain;flex:1;-webkit-overflow-scrolling:touch;}
+.sheet-f{flex:none;display:flex;gap:9px;flex-wrap:wrap;padding:12px 14px calc(12px + env(safe-area-inset-bottom));background:var(--card);border-top:2px solid var(--ink);}
+.sheet-f .btn{flex:1 1 auto;}
+.d-hero{position:relative;aspect-ratio:16/10;background:var(--paper-2);overflow:hidden;}
+.d-hero img{width:100%;height:100%;object-fit:cover;}
+.d-hero::after{content:"";position:absolute;inset:auto 0 0 0;height:52%;background:linear-gradient(180deg,transparent,rgba(30,18,8,.7));}
+.d-ht{position:absolute;left:0;right:0;bottom:0;z-index:1;padding:18px 20px;color:#FFF8EC;}
+.d-ht h2{font-size:clamp(26px,5.2vw,36px);line-height:1.15;text-shadow:0 1px 12px rgba(0,0,0,.45);}
+.d-ht .c{display:inline-block;font-size:12px;letter-spacing:.18em;font-weight:700;border:1px solid rgba(255,248,236,.55);padding:3px 10px;border-radius:999px;margin-bottom:9px;}
+.d-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));background:var(--card);border-bottom:1px solid var(--line);}
+.dm{padding:13px 8px;text-align:center;border-right:1px dashed var(--line);}
+.dm:last-child{border-right:none;}
+.dm b{display:block;font-family:var(--font-display);font-size:21px;font-variant-numeric:tabular-nums;}
+.dm span{font-size:11.5px;letter-spacing:.1em;color:var(--ink-3);}
+.sec{padding:20px 18px 6px;}
+.sec-t{display:flex;align-items:baseline;gap:10px;font-family:var(--font-display);font-size:20px;font-weight:700;padding-bottom:9px;margin-bottom:12px;border-bottom:2px solid var(--ink);}
+.sec-t .n{margin-left:auto;font-family:var(--font-body);font-size:13px;color:var(--ink-3);font-weight:500;}
+.desc{font-size:16px;color:var(--ink-2);line-height:1.8;}
+.social-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px;}
+.social{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 15px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);font-size:14.5px;font-weight:600;color:var(--ink-2);transition:all .18s var(--ease);}
+.social:hover{border-color:var(--ink);color:var(--ink);}
+.social[aria-pressed="true"]{background:var(--bad-bg);border-color:var(--bad);color:var(--bad);}
+.social[aria-pressed="true"] svg path{fill:currentColor;}
+.social .n{color:var(--ink-3);font-size:13.5px;font-variant-numeric:tabular-nums;}
+/* 比对清单行 */
+.ing-row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:var(--r-md);border:1.5px solid var(--ok-line);background:var(--ok-bg);margin-bottom:7px;}
+.ing-row.near{border-color:var(--warn-line);background:var(--warn-bg);}
+.ing-row.miss{border-color:var(--bad-line);background:var(--bad-bg);}
+.ing-mark{width:32px;height:32px;border-radius:9px;flex:none;display:grid;place-items:center;background:rgba(255,255,255,.8);border:1.5px solid;}
+.ing-row.miss .ing-mark{color:var(--bad);border-color:var(--bad-line);}
+.ing-row.ok .ing-mark{color:var(--ok);border-color:var(--ok-line);}
+.ing-row.near .ing-mark{color:var(--warn);border-color:var(--warn-line);}
+.ing-mark svg{width:17px;height:17px;}
+.ing-m{flex:1 1 auto;min-width:0;}
+.ing-n{font-size:17px;font-weight:600;line-height:1.35;}
+.ing-x{font-size:13.5px;color:var(--ink-2);margin-top:2px;font-variant-numeric:tabular-nums;}
+.ing-r{margin-left:auto;text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}
+.pill{font-size:12.5px;font-weight:700;padding:3px 10px;border-radius:999px;border:1.5px solid;white-space:nowrap;}
+.pill.ok{color:var(--ok);background:#fff;border-color:var(--ok-line);}
+.pill.near{color:var(--warn);background:#fff;border-color:var(--warn-line);}
+.pill.miss{color:#fff;background:var(--bad);border-color:var(--bad);}
+.steps{display:grid;gap:13px;list-style:none;counter-reset:s;margin-bottom:14px;}
+.steps li{counter-increment:s;display:flex;gap:13px;font-size:16px;line-height:1.75;}
+.steps li::before{content:counter(s);flex:none;width:30px;height:30px;border-radius:50%;background:var(--ink);color:var(--paper);font-family:var(--font-display);font-weight:700;display:grid;place-items:center;font-size:15px;margin-top:2px;}
+.legend{font-size:13px;color:var(--ink-2);margin-top:4px;}
+.legend i{font-style:normal;font-weight:700;}
+
+.modal{position:fixed;inset:0;z-index:80;display:none;padding:0;}
+.modal.on{display:grid;place-items:end center;}
+.modal[hidden]{display:none;}
+.modal-card{width:min(700px,100%);max-height:94vh;display:flex;flex-direction:column;background:var(--paper);border:2px solid var(--ink);border-radius:24px 24px 0 0;box-shadow:var(--sh-2);animation:up .28s var(--ease);}
+@keyframes up{from{transform:translateY(26px);opacity:.4;}to{transform:none;opacity:1;}}
+.modal-h{display:flex;align-items:center;gap:12px;padding:15px 18px;background:var(--card);border-bottom:1px solid var(--line);flex:none;}
+.modal-h h3{font-size:21px;}
+.modal-h .x{margin-left:auto;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--paper-2);color:var(--ink-2);}
+.modal-b{padding:18px;overflow-y:auto;flex:1;}
+.modal-f{display:flex;gap:9px;padding:13px 18px calc(13px + env(safe-area-inset-bottom));background:var(--card);border-top:2px solid var(--ink);flex:none;flex-wrap:wrap;}
+.modal-f .btn{flex:1 1 auto;}
+.edit-row{display:flex;gap:7px;align-items:center;margin-bottom:7px;}
+.edit-row input{min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:0 11px;background:var(--card);font-size:15px;}
+.edit-row .e-n{flex:1 1 auto;min-width:0;}
+.edit-row .e-q{flex:0 0 92px;}
+.edit-row .e-u{flex:0 0 78px;}
+.edit-row .e-x{flex:none;width:40px;height:44px;border-radius:10px;display:grid;place-items:center;border:1.5px solid var(--line);color:var(--ink-3);}
+.edit-row .e-x:hover{color:var(--bad);border-color:var(--bad-line);background:var(--bad-bg);}
+.cat-edit{display:flex;gap:9px;align-items:center;padding:10px;border:1.5px solid var(--line);border-radius:var(--r-md);background:var(--card);margin-bottom:8px;}
+.cat-edit input[type=text]{flex:1 1 auto;min-width:0;min-height:42px;border:1.5px solid var(--line);border-radius:10px;padding:0 11px;background:var(--paper);font-size:15.5px;}
+.cat-edit input[type=color]{flex:none;width:42px;height:42px;padding:0;border:1.5px solid var(--line);border-radius:10px;background:none;cursor:pointer;}
+.cat-edit .ord{display:flex;gap:2px;flex:none;}
+.cat-edit .ord button{width:32px;height:32px;border-radius:8px;border:1.5px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--ink-2);}
+.cat-edit .ord button:hover{border-color:var(--ink);}
+.cat-edit .cc{font-size:12px;color:var(--ink-3);flex:none;min-width:44px;text-align:center;}
+
+.toast-wrap{position:fixed;left:50%;bottom:calc(var(--nav-h) + 18px);transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;width:max-content;max-width:92vw;}
+.toast{display:flex;align-items:center;gap:9px;padding:11px 18px;border-radius:999px;background:var(--ink);color:var(--paper);font-size:14.5px;font-weight:600;box-shadow:var(--sh-2);animation:pop .26s var(--ease);}
+.toast.sage{background:var(--sage-deep);}.toast.amber{background:var(--amber-press);}
+@keyframes pop{from{transform:translateY(12px) scale(.96);opacity:0;}to{transform:none;opacity:1;}}
+/* 同步状态条：放左下（悬浮按钮在右下，两个浮层不打架），平时只留一个小圆点，
+   收到家人的更新才展开说明文字，几秒后自动收起 —— 常驻胶囊会一直压住内容区左下角。 */
+.syncbar{position:fixed;left:14px;right:auto;bottom:calc(var(--nav-h) + 14px);z-index:55;display:flex;align-items:center;gap:0;
+  padding:9px;border-radius:999px;background:rgba(255,252,246,.93);border:1.5px solid var(--line);box-shadow:var(--sh-1);
+  font-size:13px;color:var(--ink-2);backdrop-filter:blur(8px);cursor:pointer;transition:gap .3s var(--ease),padding .3s var(--ease);}
+.syncbar .sb-t{max-width:0;overflow:hidden;white-space:nowrap;opacity:0;transition:max-width .34s var(--ease),opacity .24s;}
+.syncbar.open{gap:9px;padding:9px 14px;}
+.syncbar.open .sb-t{max-width:min(300px,60vw);opacity:1;}
+.sync-dot{width:9px;height:9px;border-radius:50%;background:var(--sage);flex:none;}
+.sync-dot.pulse{animation:ping 1.1s var(--ease);}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(122,154,106,.6);}75%{box-shadow:0 0 0 13px rgba(122,154,106,0);}100%{box-shadow:0 0 0 0 rgba(122,154,106,0);}}
+.syncbar b{color:var(--ink);}
+
+/* ==========================================================================
+   7. 响应式（移动端优先）+ 减少动画
+   ========================================================================== */
+@media (max-width:960px){
+  .pantry-shell{grid-template-columns:1fr;}
+  .order-shell{grid-template-columns:1fr;}
+}
+@media (max-width:860px){
+  body{font-size:16.5px;background-size:104px 104px;}
+  /* 手机上侧栏压成顶部横向滚动条，分栏边界仍然看得见 */
+  .menu-shell{grid-template-columns:1fr;gap:0;}
+  .side{position:static;max-height:none;overflow:visible;border-right:none;border-bottom:1.5px solid var(--line);padding:10px 10px 12px;}
+  .side-title{display:none;}
+  .cat-list{flex-direction:row;overflow-x:auto;gap:7px;padding-bottom:8px;scrollbar-width:none;}
+  .cat-list::-webkit-scrollbar{display:none;}
+  .cat-item{width:auto;flex:none;min-width:116px;min-height:52px;font-size:16.5px;padding:8px 13px;}
+  .cat-item[aria-selected="true"]::before{left:13px;right:13px;top:auto;bottom:-1px;width:auto;height:3px;}
+  .side-tools{display:none;}
+  .grp{scroll-margin-top:64px;}
+  .grp-h{padding:10px 12px;}
+  .grp .grid{padding:12px;}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(154px,1fr));gap:12px;}
+  .dish-name{font-size:17px;}
+  .dish-desc{display:none;}
+  .ing-prev span{font-size:11.5px;padding:2px 6px;}
+  .add{font-size:13px;padding:0 11px;min-height:36px;}
+  .fav{width:34px;height:34px;}.fav svg{width:17px;height:17px;}
+  .tag{font-size:11px;padding:3px 8px;}
+  .sheet{width:100%;border-left:none;}
+  .brand-sub{display:none;}
+  .syncbar{left:14px;right:auto;bottom:calc(var(--nav-h) + 10px);}
+  .syncbar.open .sb-t{max-width:min(56vw,300px);}
+  .grp-h{top:58px;}
+  .me-chip .me-swap{display:none;}
+  .v-meta{width:100%;margin-left:0;}
+  .modal{align-items:stretch;}
+  .modal-card{max-height:100vh;height:100%;border-radius:0;border:none;}
+  .fab{right:14px;bottom:calc(var(--nav-h) + 54px);padding:0 17px;font-size:15px;min-height:46px;}
+  .rec-card{width:180px;}
+}
+@media (max-width:400px){
+  .nav-tab{font-size:11.5px;}
+  .nav-tab svg{width:21px;height:21px;}
+  .mh-row{gap:8px;}
+}
+@media (min-width:861px){ .mobile-only{display:none;} .rail-mobile-dice{display:none;} }
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================ 页头 ============================ -->
+<header class="masthead">
+  <div class="wrap">
+    <div class="mh-row">
+      <div class="brand">
+        <h1 class="brand-name">天长地久<em>小厨房</em></h1>
+        <span class="brand-sub">家庭共享</span>
+      </div>
+      <div class="mh-right">
+        <button type="button" class="me-chip" id="meChip" title="点击切换成员，用于演示多人协作">
+          <span class="av" id="meAv">我</span>
+          <span class="me-n" id="meName">厨房里的我</span>
+          <span class="me-swap">换人</span>
+        </button>
+        <button type="button" class="btn ghost sm" id="btnSyncHelp" aria-label="多人同步说明">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12a8 8 0 0113.9-5.3M20 12a8 8 0 01-13.9 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>
+          双窗口同步
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ 视图区 ============================ -->
+<main class="wrap" id="app">
+
+  <!-- ========== 视图一：点菜（左分类 / 右锚点分组） ========== -->
+  <section class="view on" id="viewMenu" role="tabpanel" aria-label="点菜">
+    <div class="v-head">
+      <div>
+        <h2 class="v-title">点菜</h2>
+        <p class="v-sub">左边选分类，右边直接跳过去；看到想吃的就「+ 加入今日菜单」。</p>
+      </div>
+      <p class="v-meta" id="menuMeta"></p>
+    </div>
+
+    <div class="menu-shell">
+      <!-- 左 25%~30%：分类侧边栏（浅灰底） -->
+      <aside class="side" aria-label="菜品分类">
+        <h3 class="side-title">分类</h3>
+        <div class="cat-list" id="catList" role="tablist" aria-orientation="vertical"></div>
+        <div class="side-tools">
+          <button type="button" class="dice" id="btnDice">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.4" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.4" fill="currentColor"/></svg>
+            今天吃什么
+          </button>
+          <button type="button" class="btn sm ghost" id="btnManageCat">管理分类</button>
+        </div>
+      </aside>
+
+      <!-- 右：白底内容区，按分类分组 + 吸顶标题 -->
+      <div class="content">
+        <div class="searchbar" style="padding:14px 16px 0">
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>
+            <label class="sr-only" for="q">搜索菜名或食材</label>
+            <input id="q" type="search" placeholder="搜菜名或食材，如「鸡蛋」" autocomplete="off">
+          </div>
+          <button type="button" class="chip mobile-only" id="btnDiceM" aria-label="今天吃什么，随机选一道菜">随机选</button>
+        </div>
+        <div class="searchbar" style="padding:0 16px;margin-top:2px">
+          <button type="button" class="chip" id="chipFav" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 20s-7-4.6-7-9.4A3.9 3.9 0 0112 8a3.9 3.9 0 017 2.6C19 15.4 12 20 12 20z"/></svg>
+            收藏
+          </button>
+          <button type="button" class="chip" id="chipReady" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M20 7L10 17l-5-4.6"/></svg>
+            冰箱里就能做
+          </button>
+          <button type="button" class="chip" id="btnNewDishTop">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            自定义新菜品
+          </button>
+        </div>
+        <div id="menuContent"></div>
+      </div>
+    </div>
+
+    <!-- FAB：自定义添加菜品 -->
+    <button type="button" class="fab" id="btnFab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      自定义添加菜品
+    </button>
+  </section>
+
+  <!-- ========== 视图二：我的订单（当前待做 + 采购清单） ========== -->
+  <section class="view" id="viewOrders" role="tabpanel" aria-label="我的订单">
+    <div class="v-head">
+      <div>
+        <h2 class="v-title">我的订单</h2>
+        <p class="v-sub">今日菜单在这里汇总，缺的食材会自动变成一张采购清单。</p>
+      </div>
+      <p class="v-meta" id="orderMeta"></p>
+    </div>
+    <div class="order-shell">
+      <section class="panel">
+        <div class="panel-h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 4h14v16l-7-3-7 3z"/></svg>
+          <h3>当前待做订单</h3><span class="h-note" id="orderCount"></span>
+        </div>
+        <div id="orderList"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 4h2.5l2.5 11h10l2-8H7"/><circle cx="9.5" cy="19" r="1.5"/><circle cx="18" cy="19" r="1.5"/></svg>
+          <h3>食材采购清单</h3><span class="h-note">自动聚合 · 已比对冰箱</span>
+        </div>
+        <div class="shop-tabs">
+          <button type="button" class="chip" data-shop="need" aria-pressed="true">要买的 <span id="tabNeedN"></span></button>
+          <button type="button" class="chip" data-shop="all" aria-pressed="false">全部食材 <span id="tabAllN"></span></button>
+        </div>
+        <div class="summary-bar" id="shopActions" style="margin-bottom:14px"></div>
+        <div id="shopList"></div>
+        <div id="shopEnough" style="margin-top:10px"></div>
+        <details style="margin-top:14px">
+          <summary style="font-size:14px;color:var(--ink-2);cursor:pointer;min-height:36px;display:inline-flex;align-items:center">手动补一项（厨房纸、保鲜袋这类）</summary>
+          <form id="manualBuyForm" class="form-grid" style="margin-top:12px">
+            <div class="field"><label for="mbName">名称</label><input id="mbName" placeholder="例：厨房纸巾" required autocomplete="off"></div>
+            <div class="field" style="flex:.6"><label for="mbQty">数量</label><input id="mbQty" type="number" min="0" step="0.1" value="1"></div>
+            <div class="field" style="flex:.45"><label for="mbUnit">单位</label><input id="mbUnit" value="个"></div>
+            <button type="submit" class="btn sage" style="align-self:end">加进清单</button>
+          </form>
+        </details>
+      </section>
+    </div>
+  </section>
+
+  <!-- ========== 视图三：智能冰箱（顶部横向推荐） ========== -->
+  <section class="view" id="viewPantry" role="tabpanel" aria-label="智能冰箱">
+    <div class="v-head">
+      <div>
+        <h2 class="v-title">智能冰箱</h2>
+        <p class="v-sub">所有菜谱的红绿判断都以这里为准；买回来的东西记上，菜单立刻重算。</p>
+      </div>
+      <p class="v-meta" id="pantryMeta"></p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-h">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/></svg>
+        <h3>为你推荐</h3><span class="h-note">按冰箱现有食材匹配 · 左右滑</span>
+      </div>
+      <p class="panel-tip" id="recTip"></p>
+      <div class="rec-rail" id="recList"></div>
+    </section>
+
+    <div class="panel">
+      <div class="panel-h">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <h3>添加食材</h3>
+      </div>
+      <form id="stockForm" class="form-grid">
+        <div class="field"><label for="stName">食材名称</label><input id="stName" name="name" required placeholder="例：牛腩" autocomplete="off"></div>
+        <div class="field" style="flex:.7"><label for="stQty">数量</label><input id="stQty" name="qty" type="number" min="0" step="0.1" required placeholder="500"></div>
+        <div class="field" style="flex:.5"><label for="stUnit">单位</label><input id="stUnit" name="unit" value="个" placeholder="克 / 个"></div>
+        <div class="field" style="flex:.8"><label for="stGroup">归类</label><select id="stGroup" name="group"><option>蔬菜</option><option>荤菜</option><option>主食</option><option>调味</option><option selected>其他</option></select></div>
+        <div class="field" style="flex:.9"><label for="stExp">保质期至（可选）</label><input id="stExp" name="exp" type="date"></div>
+        <button type="submit" class="btn primary" style="align-self:end">加入冰箱</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h12v18H6z"/><path d="M6 9h12M6 15h12"/></svg>
+        <h3>现有库存</h3><span class="h-note" id="stockSummary"></span>
+      </div>
+      <div id="stockGroups"></div>
+    </div>
+  </section>
+
+  <!-- ========== 视图四：我的（成员 / 统计 / 设置） ========== -->
+  <section class="view" id="viewProfile" role="tabpanel" aria-label="我的">
+    <div class="v-head">
+      <div>
+        <h2 class="v-title">我的</h2>
+        <p class="v-sub">家庭都在这里：切换身份、看谁在厨房、清理数据。</p>
+      </div>
+    </div>
+    <div class="prof-shell">
+      <section class="panel" style="margin:0">
+        <div class="panel-h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c1.2-3.4 3.6-5 6.5-5s5.3 1.6 6.5 5"/><path d="M17 8h5M19.5 5.5v5"/></svg>
+          <h3>家庭成员</h3><span class="h-note" id="onlineNote"></span>
+        </div>
+        <p class="panel-tip">点一下就是以这位的身份操作；多开一个标签页，就是家里另一个人在线。</p>
+        <div id="memberList"></div>
+      </section>
+
+      <section class="panel" style="margin:0">
+        <div class="panel-h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+          <h3>数据统计</h3><span class="h-note">近 30 天</span>
+        </div>
+        <div class="stat-grid" id="profStats"></div>
+        <h4 style="font-size:16px;margin:18px 0 6px">最常做的菜</h4>
+        <div id="topDishes"></div>
+      </section>
+
+      <section class="panel" style="margin:0">
+        <div class="panel-h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+          <h3>设置</h3>
+        </div>
+        <div id="profSettings"></div>
+      </section>
+
+      <section class="panel danger-zone" style="margin:0">
+        <div class="panel-h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
+          <h3>清除所有数据</h3>
+        </div>
+        <p class="panel-tip">菜谱、冰箱、今日菜单全部回到初始示例，不可恢复。演示给别人看之前想清一下就点这里。</p>
+        <button type="button" class="btn danger block" id="btnWipe">清空并重置为示例数据</button>
+      </section>
+    </div>
+  </section>
+</main>
+
+<!-- ============================ 底部导航 ============================ -->
+<nav class="bottom-nav" aria-label="主导航">
+  <div class="wrap" style="padding:0">
+    <div class="nav-inner" role="tablist">
+      <button type="button" class="nav-tab" role="tab" data-view="menu" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <span>点菜</span>
+      </button>
+      <button type="button" class="nav-tab" role="tab" data-view="orders" aria-current="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 4h14v16l-7-3-7 3z"/></svg>
+        <span>我的订单</span>
+        <span class="nav-badge zero" id="navOrderBadge">0</span>
+      </button>
+      <button type="button" class="nav-tab" role="tab" data-view="pantry" aria-current="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h12v18H6z"/><path d="M6 9h12M6 15h12"/><circle cx="8.6" cy="6" r=".8" fill="currentColor"/></svg>
+        <span>智能冰箱</span>
+      </button>
+      <button type="button" class="nav-tab" role="tab" data-view="profile" aria-current="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c1.4-3.6 4-5 7-5s5.6 1.4 7 5"/></svg>
+        <span>我的</span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- 详情抽屉 / 通用弹窗 / Toast / 同步状态条 -->
+<div class="scrim" id="scrim"></div>
+<aside class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetName" hidden>
+  <div class="sheet-h">
+    <span class="st">菜谱详情</span>
+    <div class="sa">
+      <button type="button" class="btn sm ghost" id="btnEditDish">编辑</button>
+      <button type="button" class="btn sm icon ghost" id="btnCloseSheet" aria-label="关闭详情">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="sheet-b" id="sheetBody"></div>
+  <div class="sheet-f" id="sheetFoot"></div>
+</aside>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-card">
+    <div class="modal-h"><h3 id="modalTitle">标题</h3>
+      <button type="button" class="x" id="modalClose" aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-b" id="modalBody"></div>
+    <div class="modal-f" id="modalFoot"></div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
+<div class="syncbar" id="syncbar" role="status" aria-live="polite" tabindex="0" title="点此展开/收起同步提示">
+  <span class="sync-dot" id="syncDot" aria-hidden="true"></span>
+  <span class="sb-t"><span id="syncText">已连接家庭同步通道</span></span>
+</div>
+
+<script>
+"use strict";
+/* ############################################################################
+ * A. 预置示例数据（打开即可体验；本地一旦改动就以改动为准）
+ * ##########################################################################*/
+const KEY = 'tianchang-jiujiu-kitchen';
+const SEAT = 'tcjj-seat';            // 本标签页的身份座位（sessionStorage），刷新不换人
+const IMG = id => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=900&q=80`;
+
+const SEED = {
+  rev:1,
+  catOrder:['staple','meat','veg','cold','soup','hotpot','airfry','drink','dessert','breakfast','fruit','deli','diet'],
+  cats:{
+    staple:   {name:'主食',    color:'#D26A24', desc:'米饭面条饺子，撑起一顿饭的底。'},
+    meat:     {name:'荤菜',    color:'#A3291C', desc:'硬菜专区，待客加餐都靠它。'},
+    veg:      {name:'素菜',    color:'#7A9A6A', desc:'时蔬小炒，讲究火快。'},
+    cold:     {name:'凉拌菜',  color:'#8FA23F', desc:'免开火，十分钟上桌。'},
+    soup:     {name:'汤',      color:'#4E7CA1', desc:'文火慢炖，饭前一碗最养人。'},
+    hotpot:   {name:'火锅',    color:'#C2410C', desc:'一口锅涮所有，人越多越热闹。'},
+    airfry:   {name:'空气炸锅', color:'#6B5AA6', desc:'少油脆口，懒人主力。'},
+    drink:    {name:'饮品',    color:'#B4763C', desc:'四季茶饮与气泡水。'},
+    dessert:  {name:'甜品',    color:'#B0588C', desc:'饭后那一口甜的。'},
+    breakfast:{name:'早餐',    color:'#C99A2B', desc:'十分钟搞定出门前那顿。'},
+    fruit:    {name:'水果',    color:'#5CA07A', desc:'洗好切好，随手就拿。'},
+    deli:     {name:'熟食',    color:'#7A5C43', desc:'买回来就能吃，救急用。'},
+    diet:     {name:'减脂餐',  color:'#3F8F86', desc:'低油高蛋白，吃完不心虚。'}
+  },
+  /* 库存：qty + unit 供比对；exp 为保质期 ISO 日期，可空 */
+  stock:[
+    {id:'s1', name:'鸡蛋',   qty:12,  unit:'个',   group:'荤菜', exp:''},
+    {id:'s2', name:'西红柿', qty:4,   unit:'个',   group:'蔬菜', exp:addDays(4)},
+    {id:'s3', name:'大米',   qty:3000,unit:'克',   group:'主食', exp:''},
+    {id:'s4', name:'土豆',   qty:3,   unit:'个',   group:'蔬菜', exp:addDays(12)},
+    {id:'s5', name:'小葱',   qty:1,   unit:'把',   group:'蔬菜', exp:addDays(2)},
+    {id:'s6', name:'盐',     qty:500, unit:'克',   group:'调味', exp:''},
+    {id:'s7', name:'生抽',   qty:400, unit:'毫升', group:'调味', exp:''},
+    {id:'s8', name:'食用油', qty:1200,unit:'毫升', group:'调味', exp:''},
+    {id:'s9', name:'豆腐',   qty:1,   unit:'盒',   group:'蔬菜', exp:addDays(1)},
+    {id:'s10',name:'虾皮',   qty:60,  unit:'克',   group:'其他', exp:''}
+  ],
+  buyList:[],   // 手动加购的非菜谱类物品
+  orders:[],    // 今日菜单：[{id, dishId, qty, by}]
+  recipes:[
+    { id:'r1', cat:'veg', name:'西红柿炒鸡蛋', likes:26, fav:true, author:'妈妈', time:12, servings:2, difficulty:'很简单',
+      desc:'国民下饭菜。西红柿要炒出沙，鸡蛋七成熟就盛出来，回锅一翻就起，酸甜汁全挂在蛋上。',
+      img:IMG('1518977676601-b57c2e6b0b76'),
+      ingredients:[{name:'西红柿',qty:2,unit:'个'},{name:'鸡蛋',qty:3,unit:'个'},{name:'小葱',qty:1,unit:'根'},{name:'盐',qty:3,unit:'克'},{name:'白糖',qty:5,unit:'克'},{name:'食用油',qty:30,unit:'毫升'}],
+      steps:['西红柿顶部划十字，开水烫 30 秒去皮，切滚刀块。','鸡蛋加少许盐和 1 勺清水打散，热油下锅炒至七成熟立刻盛出。','锅底留油，下西红柿中火压炒 2 分钟出汁，加白糖和盐。','倒回鸡蛋翻拌 30 秒让蛋吸汁，撒葱花出锅。'] },
+    { id:'r2', cat:'staple', name:'蛋炒饭', likes:18, fav:false, author:'我', time:10, servings:1, difficulty:'很简单',
+      desc:'隔夜饭最好用。下锅前用手抓散，火要大铲要快，饭粒在锅里跳起来才算到位。',
+      img:IMG('1603133872878-68467906f41b'),
+      ingredients:[{name:'米饭',qty:300,unit:'克'},{name:'鸡蛋',qty:2,unit:'个'},{name:'小葱',qty:1,unit:'根'},{name:'盐',qty:2,unit:'克'},{name:'食用油',qty:20,unit:'毫升'}],
+      steps:['冷饭提前抓散，鸡蛋打散。','大火热锅下油，倒蛋液，半凝固时立刻下饭。','快速翻炒压散，让蛋包住饭粒，加盐。','撒葱花翻两下，出锅前沿锅边淋几滴醋。'] },
+    { id:'r3', cat:'staple', name:'手擀面', likes:11, fav:false, author:'爸爸', time:45, servings:2, difficulty:'有点费事',
+      desc:'面团要硬、醒够时间，擀的时候薄薄撒玉米淀粉才不粘。',
+      img:IMG('1569718212165-51a9765f7e9f'),
+      ingredients:[{name:'面粉',qty:300,unit:'克'},{name:'鸡蛋',qty:1,unit:'个'},{name:'盐',qty:3,unit:'克'}],
+      steps:['面粉加盐和鸡蛋，温水边倒边搅成絮状。','揉成偏硬面团，盖布醒 20 分钟。','擀成大薄片，撒淀粉折叠后切条。','水开下面，点两次冷水，浮起即熟。'] },
+    { id:'r4', cat:'meat', name:'可乐鸡翅', likes:41, fav:true, author:'爸爸', time:25, servings:3, difficulty:'简单',
+      desc:'零失败的待客菜。鸡翅先煎出油，可乐分两次加，收汁时人别离开锅。',
+      img:IMG('1567620831435-cb46348a3b3a'),
+      ingredients:[{name:'鸡翅',qty:8,unit:'个'},{name:'可乐',qty:330,unit:'毫升'},{name:'姜',qty:4,unit:'片'},{name:'生抽',qty:20,unit:'毫升'},{name:'料酒',qty:15,unit:'毫升'}],
+      steps:['鸡翅两面划刀，冷水焯去浮沫，擦干。','少油小火煎至两面金黄。','下姜片和生抽，倒入可乐没过鸡翅。','中火 12 分钟后大火收汁至浓稠挂壁。'] },
+    { id:'r5', cat:'meat', name:'红烧排骨', likes:37, fav:false, author:'妈妈', time:60, servings:4, difficulty:'简单',
+      desc:'糖色是灵魂：冰糖小火炒到琥珀色冒小泡就下排骨，晚了会苦。',
+      img:IMG('1544025162-d76694265947'),
+      ingredients:[{name:'排骨',qty:600,unit:'克'},{name:'冰糖',qty:25,unit:'克'},{name:'生抽',qty:30,unit:'毫升'},{name:'姜',qty:4,unit:'片'},{name:'料酒',qty:20,unit:'毫升'}],
+      steps:['排骨冷水焯水，冲净沥干。','小火炒冰糖至琥珀色，下排骨翻面上色。','加姜、生抽、料酒和热水没过，烧开后小火 40 分钟。','大火收汁至亮，撒熟芝麻。'] },
+    { id:'r6', cat:'veg', name:'蒜蓉西兰花', likes:14, fav:false, author:'我', time:9, servings:2, difficulty:'很简单',
+      desc:'焯水时加盐和几滴油，颜色碧绿；下锅后别再盖盖子，否则会发黄。',
+      img:IMG('1459499713265-53ed8ee88273'),
+      ingredients:[{name:'西兰花',qty:400,unit:'克'},{name:'大蒜',qty:4,unit:'瓣'},{name:'盐',qty:3,unit:'克'},{name:'食用油',qty:15,unit:'毫升'}],
+      steps:['西兰花掰小朵盐水泡 10 分钟，洗净。','水开加盐和油，焯 40 秒捞出过凉。','小火爆香蒜末，倒入西兰花大火翻匀，加盐出锅。'] },
+    { id:'r7', cat:'veg', name:'酸辣土豆丝', likes:29, fav:true, author:'妈妈', time:12, servings:2, difficulty:'简单',
+      desc:'切好必须泡水去淀粉，炒前再冲一遍，这是脆而不黏的全部原因。',
+      img:IMG('1512058502561-57a61c542b89'),
+      ingredients:[{name:'土豆',qty:2,unit:'个'},{name:'大蒜',qty:2,unit:'瓣'},{name:'香醋',qty:20,unit:'毫升'},{name:'干辣椒',qty:3,unit:'个'},{name:'盐',qty:2,unit:'克'},{name:'食用油',qty:25,unit:'毫升'}],
+      steps:['土豆切丝，清水泡 10 分钟后冲净沥干。','热油下干辣椒和蒜片爆香。','倒入土豆丝大火快炒 2 分钟。','沿锅边淋香醋，加盐翻匀立刻出锅。'] },
+    { id:'r8', cat:'soup', name:'西红柿牛腩汤', likes:33, fav:false, author:'妈妈', time:100, servings:4, difficulty:'需要点耐心',
+      desc:'汤色红亮的秘诀是先把西红柿炒成酱。牛腩炖到筷子能轻松插透才收火。',
+      img:IMG('1547592166-83ac2bc5eb0a'),
+      ingredients:[{name:'牛腩',qty:500,unit:'克'},{name:'西红柿',qty:3,unit:'个'},{name:'土豆',qty:1,unit:'个'},{name:'姜',qty:3,unit:'片'},{name:'盐',qty:5,unit:'克'}],
+      steps:['牛腩切块冷水焯 5 分钟，冲净浮沫。','西红柿去皮切块，少油炒至成酱。','牛腩回锅加热水没过，大火烧开转小火炖 60 分钟。','下土豆再炖 25 分钟，加盐调味。'] },
+    { id:'r9', cat:'soup', name:'紫菜蛋花汤', likes:12, fav:false, author:'我', time:8, servings:2, difficulty:'很简单',
+      desc:'蛋液要细细淋入并顺一个方向搅，出来才是云絮状而不是蛋块。',
+      img:IMG('1547308838-a9c9f1b7f5b1'),
+      ingredients:[{name:'紫菜',qty:10,unit:'克'},{name:'鸡蛋',qty:1,unit:'个'},{name:'虾皮',qty:5,unit:'克'},{name:'盐',qty:2,unit:'克'},{name:'小葱',qty:1,unit:'根'}],
+      steps:['紫菜撕开放碗中，加虾皮。','水烧开，蛋液细流淋入，顺时针搅出蛋花。','冲入碗中，加盐和葱花，滴几滴香油。'] },
+    { id:'r10', cat:'cold', name:'拍黄瓜', likes:15, fav:false, author:'我', time:8, servings:2, difficulty:'很简单',
+      desc:'冰箱常备的下酒菜。蒜末和醋最后放，现拌现吃才脆。',
+      img:IMG('1540420846-018e5f764a75'),
+      ingredients:[{name:'黄瓜',qty:2,unit:'根'},{name:'大蒜',qty:3,unit:'瓣'},{name:'香醋',qty:15,unit:'毫升'},{name:'生抽',qty:10,unit:'毫升'},{name:'香油',qty:5,unit:'毫升'},{name:'盐',qty:2,unit:'克'}],
+      steps:['黄瓜拍裂切段，加盐腌 5 分钟，倒掉杀出的水。','蒜末与香醋、生抽、香油调成料汁。','吃前倒汁拌匀，冷藏十分钟更爽口。'] },
+    { id:'r11', cat:'hotpot', name:'番茄锅底火锅', likes:52, fav:true, author:'全家', time:30, servings:5, difficulty:'简单',
+      desc:'不吃辣的家庭首选。锅底熬浓一点，涮菜前先每人喝一小碗。',
+      img:IMG('1552611052-33e042fa2bbf'),
+      ingredients:[{name:'西红柿',qty:5,unit:'个'},{name:'番茄酱',qty:80,unit:'克'},{name:'肥牛卷',qty:500,unit:'克'},{name:'豆腐',qty:1,unit:'盒'},{name:'金针菇',qty:200,unit:'克'},{name:'土豆',qty:2,unit:'个'}],
+      steps:['西红柿去皮切碎，炒烂成酱后加番茄酱再炒 2 分钟。','加热水 1.5 升烧开，盐和少许糖调味。','先下土豆、豆腐、金针菇煮 5 分钟，边涮肥牛边吃。'] },
+    { id:'r12', cat:'airfry', name:'空气炸锅薯条', likes:29, fav:false, author:'我', time:28, servings:2, difficulty:'很简单',
+      desc:'切好泡去淀粉并彻底擦干，这是脆的全部秘密；炸篮别叠放。',
+      img:IMG('1573080496219-bb080ee4f676'),
+      ingredients:[{name:'土豆',qty:2,unit:'个'},{name:'食用油',qty:10,unit:'毫升'},{name:'盐',qty:2,unit:'克'}],
+      steps:['土豆切 1 厘米条，泡水 15 分钟后彻底擦干。','拌入油和盐，平铺炸篮不重叠。','200 度 12 分钟，抽出翻面再烤 8 分钟至金黄。'] },
+    { id:'r13', cat:'airfry', name:'香烤鸡翅', likes:22, fav:false, author:'爸爸', time:30, servings:3, difficulty:'很简单',
+      desc:'提前腌一晚最入味，中途翻一次面，最后两分钟盯着别烤糊。',
+      img:IMG('1528306860772-3b3a886f4e7b'),
+      ingredients:[{name:'鸡翅',qty:10,unit:'个'},{name:'生抽',qty:20,unit:'毫升'},{name:'蜂蜜',qty:15,unit:'克'},{name:'姜',qty:3,unit:'片'}],
+      steps:['鸡翅划刀，用生抽、姜片和蜂蜜腌 2 小时或隔夜。','铺炸篮单层，180 度 12 分钟。','翻面刷剩余腌汁，再烤 8 分钟至上色。'] },
+    { id:'r14', cat:'drink', name:'柠檬蜂蜜水', likes:9, fav:false, author:'我', time:5, servings:2, difficulty:'很简单',
+      desc:'水温别超 60 度，蜂蜜香气才留得住；柠檬去籽免得发苦。',
+      img:IMG('1513558161223-bac3e2a14fe7'),
+      ingredients:[{name:'柠檬',qty:0.5,unit:'个'},{name:'蜂蜜',qty:2,unit:'勺'},{name:'温水',qty:500,unit:'毫升'}],
+      steps:['柠檬用盐搓洗表皮，切薄片去籽。','约 50 度温水冲入，加蜂蜜搅匀。','想喝冰的先放凉再冷藏，苦味不会变重。'] },
+    { id:'r15', cat:'dessert', name:'牛奶布丁', likes:21, fav:true, author:'妈妈', time:20, servings:4, difficulty:'简单',
+      desc:'吉利丁片先冰水泡软，牛奶只加热到微烫就离火，煮开了会有奶皮。',
+      img:IMG('1488477160480-e64d00a14557'),
+      ingredients:[{name:'牛奶',qty:500,unit:'毫升'},{name:'吉利丁片',qty:10,unit:'克'},{name:'白糖',qty:40,unit:'克'}],
+      steps:['吉利丁片冰水泡 5 分钟，挤干水分。','牛奶加糖小火加热至微烫（别烧开），离火。','放入吉利丁搅至完全融化，过筛倒模具。','冷藏 4 小时以上至凝固，吃前可淋焦糖。'] },
+    { id:'r16', cat:'breakfast', name:'葱花鸡蛋饼', likes:32, fav:true, author:'妈妈', time:15, servings:2, difficulty:'很简单',
+      desc:'面糊调成能缓慢流下的稠度，锅微热就下糊，转动摊平，别等油冒烟。',
+      img:IMG('1518494352237-a4b0b10e4592'),
+      ingredients:[{name:'面粉',qty:120,unit:'克'},{name:'鸡蛋',qty:2,unit:'个'},{name:'小葱',qty:2,unit:'根'},{name:'盐',qty:2,unit:'克'},{name:'食用油',qty:20,unit:'毫升'}],
+      steps:['面粉加鸡蛋和约 200 毫升清水，搅成无颗粒的糊。','加盐和葱花拌匀，静置 10 分钟。','微热的锅刷薄油，倒糊转匀，中小火煎至边缘脱壳。','翻面再煎 1 分钟，出锅切块。'] },
+    { id:'r17', cat:'fruit', name:'水果酸奶碗', likes:17, fav:false, author:'我', time:6, servings:1, difficulty:'很简单',
+      desc:'水果切好再拌酸奶，久放会出水；坚果最后撒才脆。',
+      img:IMG('1490474418587-bd47e2e263e0'),
+      ingredients:[{name:'酸奶',qty:200,unit:'克'},{name:'香蕉',qty:1,unit:'根'},{name:'蓝莓',qty:50,unit:'克'},{name:'燕麦片',qty:20,unit:'克'}],
+      steps:['香蕉切片，蓝莓洗净沥干。','酸奶倒碗中，铺上水果。','撒燕麦片，想更甜可淋半勺蜂蜜。'] },
+    { id:'r18', cat:'deli', name:'卤味拼盘', likes:26, fav:false, author:'爸爸', time:90, servings:4, difficulty:'简单',
+      desc:'一锅卤水能反复用，用完烧开晾凉冻起来就是老卤，越用越香。',
+      img:IMG('1529692236671-adef3ab3b26d'),
+      ingredients:[{name:'鸡蛋',qty:6,unit:'个'},{name:'豆腐',qty:1,unit:'盒'},{name:'生抽',qty:60,unit:'毫升'},{name:'冰糖',qty:20,unit:'克'},{name:'姜',qty:4,unit:'片'}],
+      steps:['鸡蛋煮 8 分钟捞出过凉，剥壳。','锅中放 1 升水、生抽、冰糖、姜片煮开成卤水。','下鸡蛋和豆腐块，小火卤 30 分钟。','关火浸泡 30 分钟更入味，捞出切块装盘。'] },
+    { id:'r19', cat:'diet', name:'鸡胸减脂沙拉', likes:28, fav:true, author:'我', time:20, servings:1, difficulty:'简单',
+      desc:'鸡胸冷水下锅加姜片，煮开就关火焖 12 分钟，比一直煮嫩得多。',
+      img:IMG('1512614394745-3f2c77f2d0e8'),
+      ingredients:[{name:'鸡胸肉',qty:200,unit:'克'},{name:'黄瓜',qty:1,unit:'根'},{name:'鸡蛋',qty:1,unit:'个'},{name:'土豆',qty:1,unit:'个'},{name:'生抽',qty:15,unit:'毫升'},{name:'香醋',qty:10,unit:'毫升'}],
+      steps:['鸡蛋煮 8 分钟剥壳，土豆蒸熟切块。','鸡胸冷水加姜片，煮开关火焖 12 分钟后撕条。','黄瓜拍裂切段，与土豆、鸡蛋、鸡胸拌在一起。','生抽、香醋、少许水调汁淋上，不另加油。'] }
+  ],
+  /* 点菜历史：{date, dishId, dishName, by} —— 供「我的」页做统计 */
+  history:[
+    { id:'h1', date:daysAgo(1),  dishId:'r1',  dishName:'西红柿炒鸡蛋', by:0 },
+    { id:'h2', date:daysAgo(1),  dishId:'r2',  dishName:'蛋炒饭',       by:1 },
+    { id:'h3', date:daysAgo(3),  dishId:'r4',  dishName:'可乐鸡翅',     by:2 },
+    { id:'h4', date:daysAgo(5),  dishId:'r1',  dishName:'西红柿炒鸡蛋', by:3 },
+    { id:'h5', date:daysAgo(8),  dishId:'r7',  dishName:'酸辣土豆丝',   by:2 },
+    { id:'h6', date:daysAgo(12), dishId:'r4',  dishName:'可乐鸡翅',     by:0 },
+    { id:'h7', date:daysAgo(16), dishId:'r12', dishName:'空气炸锅薯条', by:1 },
+    { id:'h8', date:daysAgo(22), dishId:'r1',  dishName:'西红柿炒鸡蛋', by:2 }
+  ]
+};
+
+function addDays(n){ const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); }
+function daysAgo(n){ return addDays(-n); }
+function todayISO(){ return addDays(0); }
+function memberIdx(){ return state.members.findIndex(m => m.name === ME.name); }
+
+/* 家庭成员：用于"谁点了这道菜"的多人协作标识 */
+/* 头像底色取同一色相的深阶，保证白色字在任何成员色上都有 4.5:1 以上对比；
+   浅色版另用于标签/高亮底。 */
+const MEMBERS = [
+  {name:'厨房里的我', color:'#B5541A', ini:'我'},
+  {name:'下班的我',   color:'#3C6588', ini:'班'},
+  {name:'妈妈',       color:'#527C4C', ini:'妈'},
+  {name:'爸爸',       color:'#6E4527', ini:'爸'}
+];
+
+/* 把"作者/记录者"（成员索引或字符串）解析成 {name,color,ini}，用于卡片上的小头像 */
+function memberOf(key){
+  if(key && typeof key === 'object') return key;
+  const list = (typeof state !== 'undefined' && state && state.members) || MEMBERS;
+  if(typeof key === 'number' && list[key]) return list[key];
+  return list.find(m => m.name === key || m.ini === key)
+      || { name:String(key || '家人'), color:'#6E4527', ini:String(key || '家').slice(-1) };
+}
+
+/* 工具 */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const uid = p => p + Math.random().toString(36).slice(2,7);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { const n = parseFloat(String(v ?? '').replace(/[^\d.]/g,'')); return Number.isFinite(n) ? n : null; };
+const clone = o => JSON.parse(JSON.stringify(o));
+
+/* 当前窗口身份：每个标签页随机领一个成员，模拟"两个人各开一个窗口" */
+/* 本窗口身份：优先取 sessionStorage（同一标签页刷新不变），其次跟随上次坐的位子；
+   新开一个标签页时随机分配一位家人 —— 于是「两个窗口 = 两个厨房里的家人」，
+   这正是要演示的多人场景。用户可在「我的」页随时切换。 */
+let ME = (() => {
+  try{
+    const saved = sessionStorage.getItem(SEAT);
+    if(saved != null && MEMBERS[+saved]) return MEMBERS[+saved];
+    const last = Number(localStorage.getItem(SEAT + '-last') || 0);
+    const pick = Number.isFinite(last) ? (last + 1) % MEMBERS.length : Math.floor(Math.random() * MEMBERS.length);
+    sessionStorage.setItem(SEAT, pick);
+    return MEMBERS[pick];
+  }catch(_){ return MEMBERS[0]; }
+})();
+
+/* ############################################################################
+ * B. Store —— 数据层 + localStorage 持久化
+ *    原则：所有写操作只走 Store.mutate()，确保「改数据 → 存盘 → 广播」三步不断链。
+ * ##########################################################################*/
+let state = null;
+let cur = { view:'menu', cat:'all', q:'', fav:false, ready:false, shop:'need' };
+
+const Store = {
+  init(){
+    try{
+      const raw = localStorage.getItem(KEY);
+      if(raw){
+        const saved = JSON.parse(raw);
+        // 老数据缺字段时用种子补齐，避免版本升级后报错
+        state = Object.assign(clone(SEED), saved);
+        state.cats = Object.assign({}, SEED.cats, saved.cats || {});
+      }else{
+        state = clone(SEED);
+      }
+      // 成员表 / 设置项 / 历史记录：老数据缺失时补齐，避免升级后报错
+      if(!Array.isArray(state.members) || !state.members.length) state.members = clone(MEMBERS);
+      if(!Array.isArray(state.history)) state.history = [];
+      state.cfg = Object.assign({ animate:true, strictUnit:false }, state.cfg || {});
+      const mi = state.members.findIndex(m => m.name === ME.name);
+      ME = state.members[mi >= 0 ? mi : 0] || ME;
+      try{ sessionStorage.setItem(SEAT, Math.max(0, mi)); }catch(_){}
+      this.persist();
+    }catch(e){
+      console.warn('[Store] 本地数据读取失败，已回退示例数据：', e);
+      state = clone(SEED);
+    }
+    // 分类顺序容错
+    if(!Array.isArray(state.catOrder)) state.catOrder = SEED.catOrder.slice();
+    state.catOrder = state.catOrder.filter(k => state.cats[k]);
+    Object.keys(state.cats).forEach(k => { if(!state.catOrder.includes(k)) state.catOrder.push(k); });
+    if(cur.cat !== 'all' && !state.catOrder.includes(cur.cat)) cur.cat = 'all';
+  },
+  persist(){
+    try{ localStorage.setItem(KEY, JSON.stringify(state)); }
+    catch(e){ console.warn('[Store] 存盘失败（可能隐私模式）', e); }
+  },
+  /** 唯一写入口：fn 就地修改 state */
+  mutate(fn, opt = {}){
+    fn(state);
+    state.rev = (state.rev || 0) + 1;
+    state.at = Date.now();
+    this.persist();
+    if(!opt.localOnly) Sync.send('update');
+    View.all();
+  }
+};
+
+/* ############################################################################
+ * C. Sync —— 多人协作 / 跨标签页实时同步（本原型重点）
+ * ----------------------------------------------------------------------------
+ * 双通道策略：
+ *   主 · BroadcastChannel：同源多标签页消息总线，收到消息即刻重读数据 + 重绘，
+ *        无需用户手动刷新；消息里带 from（成员名），用于提示"谁改的"。
+ *   备 · window 'storage' 事件：浏览器不支持 BC（或某些 file:// 场景）时兜底 ——
+ *        写 localStorage 会自动通知其它标签页。
+ * 冲突处理：数据只有一份（localStorage），各窗口收到通知后按 rev 版本号取新，
+ *   rev 小的一方向另一方对齐，避免"旧窗口把新数据倒回去"。
+ * ##########################################################################*/
+const CH = 'tianchang-jiujiu-kitchen-sync';
+const Sync = {
+  bc:null,
+  peers:[],                     // 其它在线窗口的成员名 —— 「我的」页据此显示谁在线
+  init(){
+    if('BroadcastChannel' in window){
+      this.bc = new BroadcastChannel(CH);
+      this.bc.onmessage = e => {
+        const m = e.data || {};
+        if(m.from === ME.name && m.kind !== 'update') return;   // 自己的问候/回执回声，忽略
+        if(m.kind === 'update' && m.at === this.lastAt) return; // 同一次写入已被 storage 兜底应用，别重画
+        if(m.kind === 'hello'){ this.relayAck(); this.addPeer(m.from); return; }
+        if(m.kind === 'ack'){ this.addPeer(m.from); UI.sync(`「${m.from}」的窗口在线`, true); return; }
+        this.receive(m);
+      };
+      this.bc.postMessage({ kind:'hello', from:ME.name });
+    }
+    /* 兜底通道：老浏览器没有 BroadcastChannel 时，用 localStorage 的跨标签页 change 事件。
+       有 BC 时不重复处理，否则同一次变更会被应用两遍、提示语也会覆盖掉真实发言人。 */
+    window.addEventListener('storage', e => {
+      if(this.bc || e.key !== KEY || !e.newValue) return;
+      let next; try{ next = JSON.parse(e.newValue); }catch(_){ return; }
+      if(next && (next.rev || 0) > (state.rev || 0)) this.receive({ kind:'update', from:'另一位家人', data:next });
+    });
+    UI.sync(`本窗口身份「${ME.name}」· 同步已开启`, false);
+  },
+  lastAt:0,
+  send(kind){
+    if(!this.bc) return;
+    this.lastAt = Date.now() + Math.random();           // 时间戳 + 小数，保证多窗口顺序唯一
+    this.bc.postMessage({ kind, from:ME.name, rev:state.rev, at:this.lastAt });
+  },
+  relayAck(){ if(this.bc) this.bc.postMessage({ kind:'ack', from:ME.name }); },
+  addPeer(name){
+    if(!name || name === ME.name || this.peers.includes(name)) return;
+    this.peers.push(name);
+    if(cur.view === 'profile') View.profile();
+  },
+  /** 收到其它窗口的变更：读最新数据 → 全部重绘 → 亮灯提示 */
+  receive(m){
+    if(m.data){ state = m.data; }
+    else{
+      try{
+        const raw = localStorage.getItem(KEY);
+        if(!raw) return;
+        const next = JSON.parse(raw);
+        if((next.rev || 0) < (state.rev || 0)) return;  // 我更新的，不理
+        state = next;
+      }catch(_){ return; }
+    }
+    if(cur.cat !== 'all' && !state.catOrder.includes(cur.cat)) cur.cat = 'all';
+    View.all();
+    if(View.openId) View.sheet(View.openId, { silent:true });   // 打开着的详情也实时跟着变
+    UI.sync(`${m.from || '另一位家人'} 刚刚更新了${View.viewLabel()}`, true);
+  },
+  /** 打开第二个窗口的操作说明（演示用） */
+  help(){
+    Modal.open({
+      title:'双窗口同步怎么演示',
+      body:`<p class="desc">把这个页面在浏览器里再打开一个标签页（或复制到第二个窗口），两边就是「两个人」：</p>
+        <ol class="steps" style="margin-top:14px">
+          <li>在 A 窗口点一道菜加入今日菜单 —— B 窗口的菜单和底部红点<b>立刻</b>同步，不用刷新。</li>
+          <li>在 B 窗口往冰箱加「牛腩」 —— A 窗口的采购清单当场少一项，缺料标记变绿。</li>
+          <li>每个窗口开机随机领一个成员身份，记录里会显示是谁点的菜，可点右上角头像切换。</li>
+        </ol>
+        <p class="legend" style="margin-top:14px">底层：BroadcastChannel 传变更信号 + localStorage 存唯一一份数据；不支持 BroadcastChannel 时自动改用 storage 事件兜底。</p>
+        <p style="margin-top:14px;font-size:14px;color:var(--ink-2)">当前窗口身份：<b>${esc(ME.name)}</b> · 数据版本 rev ${state.rev}</p>`,
+      foot:`<button type="button" class="btn ghost" data-close="1">知道了</button>`
+    });
+  }
+};
+
+/* ############################################################################
+ * D. Compare —— 智能比对引擎
+ * ----------------------------------------------------------------------------
+ * 归一化 normalize：菜谱写「西红柿」、库存记「番茄」不该判成缺料 ——
+ *   去空格与括注 → 命中同义词表映射同键 → 取前两字兜底（"大葱" ≈ "葱"）。
+ * 三态判定（绿/黄/红）：
+ *   ok   库存有且数量 ≥ 需求                → 绿色「充足」
+ *   near 名称匹配但数量不足                → 黄色「需补货」，差额 = 需求 − 现有
+ *   miss 库存完全没有                      → 红色「需购买」
+ * 单位不一致（"1 盒" vs "300 克"）不做换算，宽松按"有货即够"处理并注明，
+ * 避免厨房场景出现假警报。
+ * ##########################################################################*/
+const SYN = {'番茄':'西红柿','洋芋':'土豆','马铃薯':'土豆','蛋':'鸡蛋','酱油':'生抽','老抽':'生抽','菜籽油':'食用油','香葱':'小葱','大葱':'葱','蒜头':'大蒜','蒜':'大蒜'};
+function normalize(name){
+  const s = String(name || '').replace(/\s+/g,'').replace(/[（(].*?[)）]/g,'').split(/[,，/·]/)[0];
+  return SYN[s] || s;
+}
+function stockMap(){
+  const m = Object.create(null);
+  (state.stock || []).forEach(it => {
+    const k = normalize(it.name);
+    if(!m[k]) m[k] = { name:it.name, qty:num(it.qty) || 0, unit:it.unit, id:it.id };
+    else m[k].qty += num(it.qty) || 0;   // 同名累加
+  });
+  return m;
+}
+/** 单食谱比对：返回 rows（含 status）与统计 */
+function compare(recipe){
+  const m = stockMap();
+  const rows = (recipe.ingredients || []).map(g => {
+    const have = m[normalize(g.name)], need = num(g.qty), hq = have && have.qty;
+    let status = 'miss', note = '冰箱没有', short = need;
+    if(have){
+      const sameUnit = !!(have.unit && g.unit && have.unit === g.unit);
+      if(hq == null || need == null){ status = 'ok'; note = '冰箱有货'; }
+      else if(!sameUnit && !strictUnit()){ status = hq > 0 ? 'ok' : 'near'; note = `冰箱 ${hq}${have.unit || ''}（单位不同按有货算）`; }
+      else if(hq >= need){ status = 'ok'; note = `冰箱 ${hq}${have.unit || ''}`; }
+      else { status = 'near'; note = `冰箱仅 ${hq}${have.unit || ''}`; short = need - hq; }
+    }
+    return Object.assign({}, g, { status, note, short: status === 'ok' ? 0 : (short || g.qty || 1) });
+  });
+  const miss = rows.filter(r => r.status !== 'ok');
+  return { rows, total: rows.length, ok: rows.length - miss.length, need: miss.length,
+           have: rows.filter(r => r.status === 'ok'), missing: miss, allReady: miss.length === 0 };
+}
+/** 多食谱聚合：今日菜单 → 食材总量（qty 按点单份数相乘） */
+function aggregate(dishIds){
+  const m = stockMap(), out = Object.create(null);
+  dishIds.forEach(({ id, qty }) => {
+    const r = (state.recipes || []).find(x => x.id === id);
+    if(!r) return;
+    (r.ingredients || []).forEach(g => {
+      const k = normalize(g.name), need = (num(g.qty) || 0) * qty;
+      if(!out[k]) out[k] = { name:g.name, qty:0, unit:g.unit, from:[], status:'miss' };
+      out[k].qty += need;
+      out[k].from.push(r.name);
+    });
+  });
+  Object.values(out).forEach(o => {
+    const have = m[normalize(o.name)], hq = have && have.qty;
+    const sameUnit = !!(have && have.unit && o.unit && have.unit === o.unit);
+    if(!have){ o.status = 'miss'; o.short = o.qty; o.haveQty = 0; }
+    else{
+      o.haveQty = hq || 0; o.haveUnit = have.unit;
+      if((!sameUnit && !strictUnit()) || hq == null){ o.status = hq > 0 ? 'ok' : 'near'; o.short = o.status === 'ok' ? 0 : o.qty; }
+      else if(hq >= o.qty){ o.status = 'ok'; o.short = 0; }
+      else { o.status = 'near'; o.short = o.qty - hq; }
+    }
+  });
+  return Object.values(out).sort((a,b) => (a.status === b.status) ? a.name.localeCompare(b.name,'zh') : (a.status === 'ok' ? 1 : -1));
+}
+
+/* ############################################################################
+ * E. Recommend —— 智能推荐（冰箱 → 最匹配的 3~5 道菜）
+ *    匹配度 = 库存里已有的食材数 / 该菜总食材数；先按匹配度降序，
+ *    再按"缺的条数"少优先，最后按点赞数。冰箱为空时整块转为空状态提示。
+ * ##########################################################################*/
+function recommend(limit = 5){
+  if(!(state.stock || []).length) return [];
+  const pool = (state.recipes || []).map(r => {
+    const c = compare(r);
+    return { recipe:r, score: c.total ? c.ok / c.total : 0, ok:c.ok, total:c.total, need:c.need, allReady:c.allReady };
+  });
+  pool.sort((a,b) => b.score - a.score || a.need - b.need || (b.recipe.likes || 0) - (a.recipe.likes || 0));
+  const hit = pool.filter(p => p.score >= 0.5);            // 至少一半食材已有，推荐才有意义
+  return (hit.length ? hit : pool).slice(0, limit);
+}
+
+/* ############################################################################
+ * UI —— Toast / 同步灯 / 图标 / 弹窗
+ * ##########################################################################*/
+const SV = (p, w = 24) => `<svg viewBox="0 0 ${w} ${w}" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">${p}</svg>`;
+const ICON = {
+  heart:  SV('<path d="M12 20s-7-4.6-7-9.4A3.9 3.9 0 0112 8a3.9 3.9 0 017 2.6C19 15.4 12 20 12 20z"/>'),
+  heartF: SV('<path d="M12 20s-7-4.6-7-9.4A3.9 3.9 0 0112 8a3.9 3.9 0 017 2.6C19 15.4 12 20 12 20z" fill="currentColor"/>'),
+  share:  SV('<circle cx="18" cy="6" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M8.4 10.8l7.2-3.6M8.4 13.2l7.2 3.6"/>'),
+  cart:   SV('<path d="M3 4h2.5l2.5 11h10l2-8H7"/><circle cx="9.5" cy="19" r="1.5"/><circle cx="18" cy="19" r="1.5"/>'),
+  clock:  SV('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.2 2"/>'),
+  user:   SV('<circle cx="12" cy="8" r="3.4"/><path d="M5 20c1.4-3.6 4-5 7-5s5.6 1.4 7 5"/>'),
+  check:  SV('<path d="M20 7L10 17l-5-4.6"/>','24'),
+  warn:   SV('<path d="M12 4L2.6 20h18.8z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".9" fill="currentColor" stroke="none"/>'),
+  plus:   SV('<path d="M12 5v14M5 12h14"/>'),
+  trash:  SV('<path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/>'),
+  edit:   SV('<path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/>'),
+  dice:   SV('<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.4" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.4" fill="currentColor"/>'),
+  x:      SV('<path d="M6 6l12 12M18 6L6 18"/>'),
+  up:     SV('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  down:   SV('<path d="M12 5v14M6 13l6 6 6-6"/>')
+};
+
+const UI = {
+  toast(msg, kind = ''){
+    const el = document.createElement('div');
+    el.className = 'toast ' + kind;
+    el.innerHTML = `<span>${esc(msg)}</span>`;
+    $('#toastWrap').appendChild(el);
+    setTimeout(() => { el.style.transition = 'opacity .3s,transform .3s'; el.style.opacity = '0'; el.style.transform = 'translateY(8px)'; setTimeout(() => el.remove(), 320); }, 2100);
+  },
+  _sbTimer:0,
+  sync(text, flash){
+    $('#syncText').textContent = text;
+    const bar = $('#syncbar');
+    if(flash){
+      const d = $('#syncDot'); d.classList.remove('pulse'); void d.offsetWidth; d.classList.add('pulse');
+      bar.classList.add('open');
+      clearTimeout(this._sbTimer);
+      // 展开 3.4 秒后自动收起；用户手动点开的话就不再自动收
+      this._sbTimer = setTimeout(() => { if(!bar.dataset.pinned) bar.classList.remove('open'); }, 3400);
+    }
+  }
+};
+
+const Modal = {
+  open({ title, body, foot }){
+    document.body.classList.add('locked');
+    $('#modalTitle').textContent = title;
+    $('#modalBody').innerHTML = body;
+    $('#modalFoot').innerHTML = foot || `<button type="button" class="btn ghost" data-close="1">关闭</button>`;
+    const m = $('#modal'); m.hidden = false; requestAnimationFrame(() => m.classList.add('on'));
+    const f = m.querySelector('input,select,textarea,button'); if(f) f.focus();
+  },
+  close(){ const m = $('#modal'); m.classList.remove('on'); m.hidden = true; this.unlock(); },
+  unlock(){ if(!$('#sheet').classList.contains('on')) document.body.classList.remove('locked'); },
+};
+
+/* ############################################################################
+ * F. View —— 渲染层
+ * ##########################################################################*/
+const View = {
+  openId: null,
+  spy: null,          // IntersectionObserver：右侧滚动时反向高亮左侧分类
+
+  viewLabel(){ return ({menu:'菜谱', orders:'我的订单', pantry:'冰箱库存', profile:'个人设置'})[cur.view]; },
+
+  all(){
+    this.cats(); this.badges();
+    ({ menu:()=>this.menu(), orders:()=>this.orders(), pantry:()=>this.pantry(), profile:()=>this.profile() }[cur.view] || (()=>{}))();
+  },
+
+  /* --- 左侧分类：全部 + 各分类（含数量） --- */
+  cats(){
+    const total = (state.recipes || []).length;
+    const row = (k, name, color, n) => `<button type="button" class="cat-item" role="tab" data-cat="${k}" aria-selected="${k === cur.cat}">
+        <span class="sw" style="background:${esc(color)}" aria-hidden="true"></span>
+        <span class="cn">${esc(name)}</span><span class="cc">${n}</span></button>`;
+    $('#catList').innerHTML = row('all', '全部', '#241C17', total)
+      + state.catOrder.map(k => row(k, state.cats[k].name, state.cats[k].color,
+          (state.recipes || []).filter(r => r.cat === k).length)).join('');
+  },
+
+  badges(){
+    /* 徽章 = 要买的食材种数（含手动记的项）：这是最需要提醒用户的信号 */
+    const need = this.needs().filter(x => x.status !== 'ok').length + (state.buyList || []).length;
+    const b1 = $('#navOrderBadge'); if(b1){ b1.textContent = need; b1.classList.toggle('zero', !need); }
+  },
+
+  needs(){
+    if(!(state.orders || []).length) return [];
+    return aggregate(state.orders.map(o => ({ id:o.dishId, qty:o.qty || 1 })));
+  },
+
+  /* ================= 视图一：点菜（右栏按分类分组 + 锚点） ================= */
+  menu(){
+    const box = $('#menuContent');
+    let items = (state.recipes || []).slice();
+    const q = cur.q.toLowerCase();
+    if(q) items = items.filter(r => r.name.toLowerCase().includes(q) || (r.ingredients || []).some(i => i.name.toLowerCase().includes(q)));
+    if(cur.fav) items = items.filter(r => r.fav);
+    if(cur.ready) items = items.filter(r => compare(r).allReady);
+
+    const inOrd = id => (state.orders || []).some(o => o.dishId === id);
+    $('#menuMeta').textContent = `${items.length} 道菜 · ${items.filter(r => compare(r).allReady).length} 道冰箱就能做`;
+
+    if(!items.length){
+      box.innerHTML = `<div class="empty" style="margin:16px">
+        <div class="il" aria-hidden="true">?</div>
+        <h3>${q || cur.fav || cur.ready ? '没翻到符合条件的菜' : '菜谱库还是空的'}</h3>
+        <p>${q ? '换个关键词试试，比如「鸡蛋」「土豆」。' : '用右下角的按钮把家里常做那道菜记进来。'}</p>
+        <button type="button" class="btn primary" data-new-dish="1">自定义添加菜品</button></div>`;
+      return;
+    }
+
+    /* 锚点模式：右栏按分类分组铺开，左栏点击 = 跳到该分组（美团/饿了么点菜页的做法）。
+       这样连续翻看时不用反复切 tab，滚动时左栏还会自动跟随高亮当前分类。 */
+    const keys = state.catOrder.filter(k => items.some(r => r.cat === k))
+      .concat(items.some(r => !state.cats[r.cat]) ? ['_other'] : []);
+
+    box.innerHTML = keys.map(k => {
+      const list = items.filter(r => (k === '_other' ? !state.cats[r.cat] : r.cat === k));
+      if(!list.length) return '';
+      const c = state.cats[k] || { name:'未分类', desc:'', color:'#6E4527' };
+      return `<section class="grp" id="cat-${k}" data-grp="${k}">
+        <div class="grp-h" style="box-shadow:inset 4px 0 0 ${esc(c.color)}">
+          <h3>${esc(c.name)}</h3><span class="gc">${list.length} 道</span>
+          <span class="gd">${esc(c.desc || '')}</span>
+        </div>
+        <div class="grid">${list.map(r => this.dishCard(r, inOrd(r.id))).join('')}</div>
+      </section>`;
+    }).join('');
+
+    this.observeSpy();
+  },
+
+  /** 菜品卡片：图 / 名称 / 前 3 种食材预览 / 加入今日菜单 */
+  dishCard(r, added){
+    const c = compare(r);
+    const prev = (r.ingredients || []).slice(0, 3).map(g => {
+      const st = (c.rows.find(x => x.name === g.name) || {}).status;
+      return `<span class="${st === 'ok' ? 'g' : st === 'near' ? 'y' : 'r'}">${esc(g.name)}${g.qty ? ' ' + round(g.qty) + esc(g.unit || '') : ''}</span>`;
+    }).join('');
+    const rest = (r.ingredients || []).length - 3;
+    const mem = memberOf(r.author);
+    return `<article class="dish${added ? ' in-order' : ''}" data-open="${r.id}" tabindex="0" role="button" aria-label="查看 ${esc(r.name)} 详情">
+      <div class="ph" data-fb="${esc(r.name)}" style="--hue:${(r.name.charCodeAt(0) * 7) % 60 + 14}">
+        <img src="${esc(r.img)}" alt="${esc(r.name)}成品图" loading="lazy" width="900" height="675"
+             onload="this.classList.add('loaded')" onerror="this.style.display='none'">
+        <span class="tag${r.custom ? ' mine' : ''}">${r.custom ? '自定义' : esc((state.cats[r.cat] || {}).name || '未分类')}</span>
+        <button type="button" class="fav" data-fav="${r.id}" aria-pressed="${!!r.fav}" aria-label="收藏 ${esc(r.name)}">${r.fav ? ICON.heartF : ICON.heart}</button>
+      </div>
+      <div class="dish-body">
+        <h3 class="dish-name">${esc(r.name)}</h3>
+        <p class="dish-desc">${esc(r.desc)}</p>
+        <div class="ing-prev">${prev}${rest > 0 ? `<span class="m">+${rest} 种</span>` : ''}</div>
+        <div class="dish-foot">
+          <span class="stat">${ICON.clock}${r.time}分</span>
+          <span class="stat">${ICON.user}${r.servings}人</span>
+          ${c.allReady ? `<span class="stat" style="color:var(--ok)">食材齐</span>` : `<span class="stat" style="color:var(--bad)">缺 ${c.need}</span>`}
+          <span class="by-av" title="这道菜记在 ${esc(mem.name)} 名下"><i style="background:${esc(mem.color)}">${esc(mem.ini)}</i>${esc(mem.name)}</span>
+          <button type="button" class="btn sm add" data-add="${r.id}" aria-pressed="${added}" aria-label="${added ? '已在菜单中' : '把' + esc(r.name) + '加入今日菜单'}">${added ? '已点 +' : '+ 加入今日菜单'}</button>
+        </div>
+      </div>
+    </article>`;
+  },
+
+  /** 滚动监听：右侧滚到哪个分类，左侧对应项自动高亮 */
+  observeSpy(){
+    if(this.spy) this.spy.disconnect();
+    if(!('IntersectionObserver' in window)) return;
+    this.spy = new IntersectionObserver(entries => {
+      const vis = entries.filter(e => e.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if(!vis || cur.q || this._lock) return;          // 搜索态 / 刚点过左栏时不抢状态
+      const k = vis.target.dataset.grp;
+      if(k === cur.cat) return;
+      cur.cat = k;
+      $$('.cat-item').forEach(b => b.setAttribute('aria-selected', b.dataset.cat === k));
+      const act = $(`.cat-item[data-cat="${k}"]`);
+      if(!act) return;
+      if(window.innerWidth <= 860){ act.scrollIntoView({ inline:'nearest', block:'nearest' }); return; }
+      /* 桌面端侧栏是独立滚动容器：手动算偏移，避免 scrollIntoView 连带把整页也滚走 */
+      const side = act.parentElement.parentElement;         // .cat-list → .side
+      if(side && side.scrollHeight > side.clientHeight){
+        const top = act.offsetTop - 60, bottom = top + act.offsetHeight + 60;
+        if(top < side.scrollTop || bottom > side.scrollTop + side.clientHeight){
+          side.scrollTo({ top:Math.max(0, top), behavior:(state.cfg && state.cfg.animate === false) ? 'auto' : 'smooth' });
+        }
+      }
+    }, { rootMargin:'-84px 0px -62% 0px', threshold:0 });   // 上边界对齐吸顶标题，判定才准
+    $$('.grp').forEach(g => this.spy.observe(g));
+  },
+
+  /* ============ 视图二：我的订单（待做 + 采购清单 + 一键复制） ============ */
+  orders(){
+    const orders = state.orders || [];
+    const totalMin = orders.reduce((s, o) => {
+      const r = (state.recipes || []).find(x => x.id === o.dishId);
+      return s + (r ? r.time * (o.qty || 1) : 0);
+    }, 0);
+    $('#orderCount').textContent = orders.length ? `${orders.length} 种 · 约 ${totalMin} 分钟` : '';
+    $('#orderMeta').textContent = orders.length ? `今日已点 ${orders.reduce((s,o) => s + (o.qty||1), 0)} 道` : '';
+
+    /* ---- 待做列表 ---- */
+    const box = $('#orderList');
+    if(!orders.length){
+      box.innerHTML = `<div class="empty"><div class="il" aria-hidden="true">菜单</div>
+        <h3>今天的菜单还是空的</h3><p>去「点菜」挑几道，或者用「今天吃什么」交给运气。</p>
+        <button type="button" class="btn primary" data-goto="menu">去点菜</button></div>`;
+    }else{
+      box.innerHTML = orders.map(o => {
+        const r = (state.recipes || []).find(x => x.id === o.dishId);
+        if(!r) return '';
+        const mem = o.by != null ? memberOf(o.by) : { name:'家人', color:'#6E4527', ini:'家' };
+        const c = compare(r);
+        return `<div class="order-row">
+          <img src="${esc(r.img)}" alt="" loading="lazy" width="66" height="66" onerror="this.style.visibility='hidden'">
+          <div class="o-main">
+            <div class="o-name">${esc(r.name)} ×${o.qty || 1}</div>
+            <div class="o-sub">
+              <span class="by"><i style="background:${esc(mem.color)}">${esc(mem.ini)}</i>${esc(mem.name)} 点的</span>
+              <span>${r.time * (o.qty || 1)} 分钟 · ${c.allReady ? '<b style="color:var(--ok)">食材齐</b>' : `<b style="color:var(--bad)">缺 ${c.need} 样</b>`}</span>
+            </div>
+          </div>
+          <div class="o-acts">
+            <div class="qty">
+              <button type="button" data-oq="${o.id}" data-d="-1" aria-label="减少 ${esc(r.name)}">−</button>
+              <span class="o-count">×${o.qty || 1}</span>
+              <button type="button" data-oq="${o.id}" data-d="1" aria-label="增加 ${esc(r.name)}">＋</button>
+            </div>
+            <button type="button" class="btn sm ghost" data-open="${r.id}">看做法</button>
+            <button type="button" class="s-del" data-order-del="${o.id}" aria-label="从菜单删除 ${esc(r.name)}">${ICON.trash}</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    /* ---- 采购清单（聚合 + 比对） ---- */
+    this.shop();
+  },
+
+  shop(){
+    const list = this.needs();
+    const need   = list.filter(x => x.status !== 'ok');
+    const enough = list.filter(x => x.status === 'ok');
+    const manual = state.buyList || [];
+    const manualMiss = manual.filter(b => !enough.some(e => normalize(e.name) === normalize(b.name)));
+
+    $('#tabNeedN').textContent = `(${need.length + manualMiss.length})`;
+    $('#tabAllN').textContent  = `(${list.length + manual.length})`;
+    const showNeed = cur.shop !== 'all';
+
+    const rows = need.map(x => `
+      <div class="shop-item need">
+        <span class="shop-mark">${ICON.warn}</span>
+        <div class="shop-main">
+          <div class="shop-name">${esc(x.name)}</div>
+          <div class="shop-meta">要买 <b>${round(x.short)}${esc(x.unit || '')}</b> · 菜里共需 ${round(x.qty)}${esc(x.unit || '')}${x.haveQty ? `，冰箱有 ${round(x.haveQty)}${esc(x.haveUnit || '')}` : '，冰箱没有'}</div>
+          <div class="from-chips">${[...new Set(x.from)].map(f => `<i>${esc(f)}</i>`).join('')}</div>
+        </div>
+        <div class="o-acts">
+          <button type="button" class="btn sm ghost" data-bought="${esc(x.name)}">买好了</button>
+          <button type="button" class="s-del" data-skip="${esc(x.name)}" aria-label="先不做用到 ${esc(x.name)} 的菜" title="先不做">${ICON.x}</button>
+        </div>
+      </div>`).join('');
+
+    const manualRows = manual.map(b => {
+      const mem = b.by != null ? memberOf(b.by) : { name:'家人', color:'#6E4527', ini:'家' };
+      return `<div class="shop-item need">
+        <span class="shop-mark">${ICON.plus}</span>
+        <div class="shop-main">
+          <div class="shop-name">${esc(b.name)}</div>
+          <div class="shop-meta">${round(b.qty)}${esc(b.unit || '')} · 手动记的</div>
+          <div class="from-chips"><i>${esc(mem.name)}</i></div>
+        </div>
+        <div class="o-acts">
+          <button type="button" class="btn sm ghost" data-bought="${esc(b.name)}">买好了</button>
+          <button type="button" class="s-del" data-delbuy="${b.id}" aria-label="删除 ${esc(b.name)}">${ICON.trash}</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    $('#shopList').innerHTML = (showNeed ? (rows + manualRows) : (rows + manualRows + enough.map(this.shopEnoughRow).join('')))
+      || `<div class="empty"><div class="il" aria-hidden="true">齐</div>
+        <h3>${list.length ? '不用买，冰箱全备齐了' : '清单还是空的'}</h3>
+        <p>${list.length ? '今日菜单每道菜的食材家里都够，直接开火。' : '先在「点菜」加几道菜，清单会自动生成。'}</p>
+        <button type="button" class="btn primary" data-goto="${list.length ? 'pantry' : 'menu'}">${list.length ? '去看看冰箱' : '去点菜'}</button></div>`;
+
+    $('#shopActions').innerHTML = (need.length + manual.length) ? `
+      <span class="sum need">要买 ${need.length + manual.length} 种</span>
+      <span class="sum enough">已有 ${enough.length} 种</span>
+      <button type="button" class="btn primary sm" data-copy="need">${ICON.check} 复制要买的</button>
+      <button type="button" class="btn ghost sm" data-share="shop">${ICON.share} 发给家人</button>
+      <button type="button" class="btn ghost sm" data-clear-shop="1">清空手动项</button>` : `
+      <span class="sum enough">没有要买的</span>
+      <button type="button" class="btn ghost sm" data-goto="menu">继续点菜</button>`;
+  },
+
+  shopEnoughRow(x){
+    return `<div class="shop-item enough">
+      <span class="shop-mark">${ICON.check}</span>
+      <div class="shop-main">
+        <div class="shop-name">${esc(x.name)}</div>
+        <div class="shop-meta">冰箱有 ${round(x.haveQty)}${esc(x.haveUnit || '')} · 共需 ${round(x.qty)}${esc(x.unit || '')}</div>
+        <div class="from-chips">${[...new Set(x.from)].map(f => `<i>${esc(f)}</i>`).join('')}</div>
+      </div>
+    </div>`;
+  },
+
+  /* ================= 视图三：智能冰箱 ================= */
+  pantry(){
+    const st = state.stock || [];
+    const exp = expInfo();
+    $('#pantryMeta').textContent = st.length ? `${st.length} 种 · 过期 ${exp.bad.length} · 3 天内 ${exp.soon.length}` : '';
+    $('#stockSummary').textContent = st.length ? `共 ${st.length} 种` : '';
+
+    /* ---- 顶部横向推荐（含自定义菜品） ---- */
+    const recs = recommend(5), rl = $('#recList'), tip = $('#recTip');
+    if(!st.length){
+      tip.textContent = '冰箱里还没有食材 —— 先记上几样，推荐立刻就有内容。';
+      rl.innerHTML = `<div class="empty" style="width:100%"><div class="il" aria-hidden="true">空</div>
+        <h3>冰箱空空的，快去补充食材吧！</h3><p>有了库存就能算出「现在能做哪几道」，点菜页的红绿标记也会跟着变。</p>
+        <button type="button" class="btn primary" data-focus-stock="1">添加第一种食材</button></div>`;
+    }else if(!recs.length){
+      tip.textContent = '';
+      rl.innerHTML = `<p class="panel-tip">菜谱库是空的，先去「点菜」自定义几道菜。</p>`;
+    }else{
+      tip.textContent = `按冰箱里的 ${st.length} 种食材匹配，其中 ${recs.filter(r => r.allReady).length} 道现在就能做。`;
+      rl.innerHTML = recs.map(p => {
+        const r = p.recipe;
+        return `<button type="button" class="rec-card" data-open="${r.id}" aria-label="查看 ${esc(r.name)}">
+          <span class="rc-ph"><img src="${esc(r.img)}" alt="" loading="lazy" width="216" height="148" onerror="this.style.display='none'">
+            <span class="rc-score">${Math.round(p.score * 100)}% 匹配</span></span>
+          <span class="rc-b">
+            <span class="rc-n">${esc(r.name)}</span>
+            <span class="rc-x">${p.allReady ? '食材全齐，直接开火' : `还缺 ${p.need} 样 · ${esc((state.cats[r.cat] || {}).name || '')} · ${r.time} 分钟`}</span>
+          </span>
+        </button>`;
+      }).join('');
+    }
+
+    /* ---- 库存 ---- */
+    const gbox = $('#stockGroups');
+    if(!st.length){
+      gbox.innerHTML = `<div class="empty"><div class="il" aria-hidden="true">空</div>
+        <h3>空空如也</h3><p>把刚买回来的记上，3 天内到期和已过期的会自动标黄标红。</p></div>`;
+    }else{
+      const groups = {};
+      st.forEach(it => { const g = it.group || '其他'; (groups[g] = groups[g] || []).push(it); });
+      gbox.innerHTML = Object.keys(groups).map(g => `
+        <div style="margin-bottom:16px">
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:7px;border-bottom:2px solid var(--ink)">
+            <h4 style="font-size:16px">${esc(g)}</h4><span style="margin-left:auto;font-size:12.5px;color:var(--ink-3)">${groups[g].length} 种</span></div>
+          <div class="stock-rows" style="padding-top:10px">${groups[g].map(it => {
+            const e = exp.map[it.id] || { cls:'fresh', text:'' };
+            return `<div class="stock-row ${e.cls}">
+              <span class="s-name" title="${esc(it.name)}">${esc(it.name)}</span>
+              ${e.text ? `<span class="s-exp ${e.cls === 'bad' ? 'bad' : e.cls === 'soon' ? 'soon' : 'fresh'}">${esc(e.text)}</span>` : ''}
+              <span class="s-qty">${round(it.qty)}${esc(it.unit || '')}</span>
+              <span class="qty">
+                <button type="button" data-sq="${it.id}" data-d="-1" aria-label="减少 ${esc(it.name)}">−</button>
+                <button type="button" data-sq="${it.id}" data-d="1" aria-label="增加 ${esc(it.name)}">＋</button>
+              </span>
+              <button type="button" class="s-edit" data-stock-edit="${it.id}" aria-label="编辑 ${esc(it.name)}">${ICON.edit}</button>
+              <button type="button" class="s-del" data-stock-del="${it.id}" aria-label="删除 ${esc(it.name)}">${ICON.trash}</button>
+            </div>`;
+          }).join('')}</div>
+        </div>`).join('');
+    }
+  },
+
+  /* ================= 视图四：我的 ================= */
+  profile(){
+    /* 成员列表：当前身份 + 在线状态（在线 = 有其他窗口 ack 或就是本窗口） */
+    const online = new Set(Sync.peers);   // peers 存的就是成员名字符串
+    $('#onlineNote').textContent = `${online.size + 1} 个窗口在线`;
+    $('#memberList').innerHTML = state.members.map((m, i) => {
+      const isMe = m.name === ME.name;
+      const on = isMe || online.has(m.name);
+      const cnt = (state.history || []).filter(h => (h.by === i || (h.by && h.by.name === m.name))).length
+                + (state.orders || []).filter(o => (o.by === i || (o.by && o.by.name === m.name))).length;
+      return `<button type="button" class="mem" data-member="${i}" aria-pressed="${isMe}">
+        <span class="av" style="background:${esc(m.color)}">${esc(m.ini)}</span>
+        <span>
+          <span class="m-n">${esc(m.name)}${isMe ? ' · 本窗口' : ''}</span>
+          <span class="m-s"><i class="on-dot${on ? '' : ' off'}"></i>${on ? '在线' : '离线'} · 记了 ${cnt} 道菜</span>
+        </span>
+        <span class="m-go">${isMe ? '当前身份' : '用它操作'}</span>
+      </button>`;
+    }).join('') + `<div class="mem-add">
+        <input id="newMem" placeholder="加一位家人，如「奶奶」" aria-label="新成员昵称"
+          style="flex:1;min-height:44px;padding:0 13px;border-radius:var(--r-md);border:1.5px solid var(--line);background:var(--paper)">
+        <button type="button" class="btn sm sage" data-member-add="1">添加</button></div>`;
+
+    /* 统计：近 30 天点菜次数 / 最常做 */
+    const since = Date.now() - 30 * 86400000;
+    const hist = (state.history || []).filter(h => new Date(h.date).getTime() >= since);
+    const tally = {};
+    hist.forEach(h => { const k = h.dishName || h.dishId; tally[k] = (tally[k] || 0) + 1; });
+    const tops = Object.entries(tally).sort((a,b) => b[1] - a[1]).slice(0, 4);
+    const maxN = tops.length ? tops[0][1] : 1;
+    $('#profStats').innerHTML = `
+      <div class="stat-cell"><b>${hist.length}</b><span>本月点菜</span></div>
+      <div class="stat-cell"><b>${(state.recipes || []).length}</b><span>菜谱总数</span></div>
+      <div class="stat-cell"><b>${(state.stock || []).length}</b><span>冰箱库存</span></div>
+      <div class="stat-cell"><b>${(state.recipes || []).filter(r => compare(r).allReady).length}</b><span>现在能做</span></div>`;
+    $('#topDishes').innerHTML = tops.length ? tops.map(([name, n], i) => `
+      <div class="top-dish">
+        <span class="rank n${i+1}">${i+1}</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:16px;font-weight:600">${esc(name)}</span>
+          <span class="bar"><i style="width:${Math.round(n / maxN * 100)}%"></i></span>
+        </span>
+        <span style="font-size:13.5px;color:var(--ink-3);font-variant-numeric:tabular-nums">${n} 次</span>
+      </div>`).join('') : `<p class="panel-tip">还没有点菜记录，去「点菜」点一道试试。</p>`;
+
+    /* 设置 */
+    $('#profSettings').innerHTML = `
+      <label class="mem" style="cursor:pointer">
+        <input type="checkbox" id="cfgAnimate" ${state.cfg && state.cfg.animate !== false ? 'checked' : ''} style="width:20px;height:20px;flex:none;accent-color:var(--amber-press)">
+        <span><span class="m-n" style="font-size:16px">随机选有转盘动画</span>
+        <span class="m-s">关掉后立刻出结果</span></span>
+      </label>
+      <label class="mem" style="cursor:pointer">
+        <input type="checkbox" id="cfgSku" ${state.cfg && state.cfg.strictUnit ? 'checked' : ''} style="width:20px;height:20px;flex:none;accent-color:var(--amber-press)">
+        <span><span class="m-n" style="font-size:16px">严格单位比对</span>
+        <span class="m-s">开：单位不同算缺；关：单位不同按有货放行</span></span>
+      </label>
+      <button type="button" class="btn ghost block" style="margin-top:8px" id="btnSyncHelp2">怎么用两个窗口演示同步</button>
+      <button type="button" class="btn ghost block" style="margin-top:8px" id="btnResetDemo">重新载入示例菜单（今日菜单清空）</button>
+      <p class="legend" style="margin-top:12px">数据版本 rev ${state.rev} · 当前窗口「${esc(ME.name)}」 · 存储方式 localStorage</p>`;
+  },
+
+  /* ================= 详情抽屉（智能比对的完整呈现） ================= */
+  sheet(id, opt = {}){
+    const r = (state.recipes || []).find(x => x.id === id);
+    if(!r){ this.closeSheet(); return; }
+    this.openId = id;
+    const c = compare(r), cat = state.cats[r.cat] || {};
+    const inOrd = (state.orders || []).some(o => o.dishId === id);
+    const mem = memberOf(r.by != null ? r.by : r.author);
+
+    $('#sheet').hidden = false;
+    requestAnimationFrame(() => { $('#sheet').classList.add('on'); $('#scrim').classList.add('on'); });
+
+    $('#sheetBody').innerHTML = `
+      <div class="d-hero"><img src="${esc(r.img)}" alt="${esc(r.name)}成品图" onerror="this.style.display='none'">
+        <div class="d-ht"><span class="c">${esc(cat.name || '未分类')}${r.custom ? ' · 自定义' : ''}</span><h2 id="sheetName">${esc(r.name)}</h2></div></div>
+      <div class="d-meta">
+        <div class="dm"><b>${r.time}</b><span>分钟</span></div>
+        <div class="dm"><b>${r.servings}</b><span>人份</span></div>
+        <div class="dm"><b style="font-size:16px">${esc(r.difficulty || '简单')}</b><span>难度</span></div>
+        <div class="dm"><b>${c.ok}/${c.total}</b><span>食材备齐</span></div>
+      </div>
+      <section class="sec"><p class="desc">${esc(r.desc)}</p>
+        ${r.note ? `<p class="panel-tip" style="margin-top:12px;padding:10px 12px;background:var(--amber-soft);border-radius:10px"><b>备注：</b>${esc(r.note)}</p>` : ''}
+        <div class="social-row">
+          <button type="button" class="social" data-like="${r.id}" aria-pressed="${!!r.liked}" aria-label="点赞">${r.liked ? ICON.heartF : ICON.heart}<span>点赞</span><span class="n">${r.likes || 0}</span></button>
+          <button type="button" class="social" data-fav="${r.id}" aria-pressed="${!!r.fav}" aria-label="收藏">${r.fav ? ICON.heartF : ICON.heart}<span>${r.fav ? '已收藏' : '收藏'}</span></button>
+          <button type="button" class="social" data-share="${r.id}" aria-label="分享给家人">${ICON.share}<span>分享给家人</span></button>
+        </div>
+      </section>
+
+      <section class="sec" style="padding-top:2px">
+        <h3 class="sec-t">需要准备的食材<span class="n">${c.allReady ? '全部齐了，直接开火' : `还缺 ${c.need} 样`}</span></h3>
+        <ul>${c.rows.map(row => `
+          <li class="ing-row ${row.status}">
+            <span class="ing-mark">${row.status === 'ok' ? ICON.check : ICON.warn}</span>
+            <span class="ing-m">
+              <span class="ing-n">${esc(row.name)}</span>
+              <span class="ing-x">需要 ${round(row.qty) || '适量'}${esc(row.unit || '')} · ${esc(row.note)}</span>
+            </span>
+            <span class="ing-r">
+              <span class="pill ${row.status}">${row.status === 'ok' ? '充足' : row.status === 'near' ? '需补货' : '需购买'}</span>
+              ${row.status !== 'ok' ? `<button type="button" class="btn sm ghost" data-addbuy="${esc(row.name)}|${round(row.short)}|${esc(row.unit || '')}">补进清单</button>` : ''}
+            </span>
+          </li>`).join('')}</ul>
+        <p class="legend"><i style="color:var(--ok)">绿</i> 库存够用　<i style="color:var(--warn)">黄</i> 有但不够　<i style="color:var(--bad)">红</i> 冰箱没有，需购买</p>
+        ${c.need ? `<button type="button" class="btn sage block" style="margin-top:12px" data-addallbuy="${r.id}">${ICON.cart} 把缺的 ${c.need} 样一次加进采购清单</button>` : ''}
+      </section>
+
+      <section class="sec" style="padding-top:14px">
+        <h3 class="sec-t">做法步骤<span class="n">${(r.steps || []).length} 步</span></h3>
+        ${(r.steps || []).length ? `<ol class="steps">${r.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="panel-tip">这道菜还没写步骤，点「编辑」补上。</p>'}
+        <p class="legend" style="display:flex;align-items:center;gap:7px;margin-top:10px">
+          <span class="by-av"><i style="background:${esc(mem.color)}">${esc(mem.ini)}</i>出自 ${esc(mem.name)}</span>
+          · 改动会立刻同步到家人的窗口</p>
+      </section>`;
+
+    $('#sheetFoot').innerHTML = `
+      <button type="button" class="btn primary" data-add="${r.id}" aria-pressed="${inOrd}">${inOrd ? '再去点一道' : '+ 加入今日菜单'}</button>
+      <button type="button" class="btn ghost" data-edit-dish="${r.id}">${ICON.edit} 编辑</button>`;
+
+    if(!opt.silent) $('#btnCloseSheet').focus();
+  },
+
+  closeSheet(){
+    this.openId = null;
+    $('#sheet').classList.remove('on'); $('#scrim').classList.remove('on');
+    if(!$('#modal').classList.contains('on')) document.body.classList.remove('locked');
+    setTimeout(() => { $('#sheet').hidden = true; }, 300);
+  }
+};
+
+const strictUnit = () => !!(state.cfg && state.cfg.strictUnit);
+/** 数量 → 展示文本：3 → "3"，0.5 → "0.5"，null/0 → "" */
+function fmtQty(n){ const v = num(n); if(v == null) return ''; return String(Math.round(v * 100) / 100); }
+function round(n){ const v = num(n); if(v == null) return ''; return Math.round(v * 100) / 100; }
+
+/* 保质期信息：已过期 / 3 天内到期 */
+function expInfo(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const map = {}; let bad = [], soon = [];
+  (state.stock || []).forEach(it => {
+    if(!it.exp){ map[it.id] = { cls:'fresh', text:'' }; return; }
+    const d = new Date(it.exp + 'T00:00:00');
+    const diff = Math.round((d - today) / 86400000);
+    if(diff < 0){ map[it.id] = { cls:'bad', text:`过期 ${-diff} 天` }; bad.push(it); }
+    else if(diff <= 3){ map[it.id] = { cls:'soon', text:diff === 0 ? '今天到期' : `${diff} 天后到期` }; soon.push(it); }
+    else map[it.id] = { cls:'fresh', text:`${d.getMonth()+1}/${d.getDate()} 到期` };
+  });
+  return { map, bad, soon };
+}
+
+/* ############################################################################
+ * G. Action —— 交互层（事件委托：一处绑定，动态内容无需重绑）
+ * ##########################################################################*/
+const Action = {
+  /* 加入 / 移出今日菜单 */
+  addOrder(dishId){
+    const r = (state.recipes || []).find(x => x.id === dishId);
+    if(!r) return;
+    Store.mutate(s => {
+      const ex = (s.orders || []).find(o => o.dishId === dishId);
+      if(ex) ex.qty = (ex.qty || 1) + 1;
+      else (s.orders = s.orders || []).push({ id:uid('o'), dishId, qty:1, by:memberIdx() });
+      // 点一次记一笔历史：「我的」页据此统计本月点菜次数与最常做的菜
+      (s.history = s.history || []).push({ id:uid('h'), date:todayISO(), dishId, dishName:r.name, by:memberIdx() });
+    });
+    UI.toast(`「${r.name}」已加入今日菜单，记在「${ME.name}」名下`, 'sage');
+  },
+  setOrderQty(oid, d){
+    Store.mutate(s => {
+      const o = s.orders.find(x => x.id === oid); if(!o) return;
+      o.qty = (o.qty || 1) + d;
+      if(o.qty <= 0) s.orders = s.orders.filter(x => x.id !== oid);
+    });
+  },
+  delOrder(oid){
+    Store.mutate(s => { s.orders = s.orders.filter(o => o.id !== oid); });
+    UI.toast('已从今日菜单移除');
+  },
+
+  /* 采购清单 */
+  /* 采购清单 → 可粘贴给家人的纯文本。
+     只列「要买」的项（含手动记的），已齐的食材写进括号里方便对照冰箱。 */
+  shopText(){
+    const need = this.needs().filter(x => x.status !== 'ok');
+    const lines = [];
+    if(need.length) lines.push('【要买】', ...need.map(x => {
+      const g = x.g || {};
+      return `- ${x.name}${g.qty ? ' ' + fmtQty(g.qty) + (g.unit || '') : ''}${x.status === 'near' ? '（冰箱有一点，补一些）' : ''}`;
+    }));
+    const hand = (state.buyList || []).map(b => `- ${b.name}${b.qty ? ' ' + fmtQty(b.qty) + (b.unit || '') : ''}`);
+    if(hand.length) lines.push('', '【另外要带】', ...hand);
+    const ok = this.needs().filter(x => x.status === 'ok').map(x => x.name);
+    if(ok.length) lines.push('', `【冰箱已有，不用买】${ok.join('、')}`);
+    return [`今天菜单（${(state.orders || []).length} 道）：${this.dishNames().join('、')}`, '', ...lines].join('\n');
+  },
+  copyShop(){
+    const t = this.shopText();
+    if(!t.trim()){ UI.toast('清单现在是空的', 'amber'); return; }
+    const done = () => UI.toast('采购清单已复制，粘贴给家人就能带去超市', 'sage');
+    if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(t).then(done, () => this.fallbackCopy(t, done)); }
+    else this.fallbackCopy(t, done);
+  },
+  fallbackCopy(t, done){            // file:// 下 clipboard API 不可用 → 退回 execCommand
+    const ta = document.createElement('textarea'); ta.value = t;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); }
+    catch(_){ Modal.open({ title:'手动选中这段文字复制即可', body:`<pre class="share-pre">${esc(t)}</pre>` }); }
+    finally { ta.remove(); }
+  },
+  dishNames(){ return (state.orders || []).map(o => { const r = state.recipes.find(x => x.id === o.dishId); return r ? r.name : null; }).filter(Boolean); },
+  /* 分享：单道菜分享做法，清单分享要买的食材。用剪贴板 + 弹窗文本双通道，厨房里没有网络也能口头转达 */
+  share(kind, id){
+    let text = '';
+    if(kind === 'shop'){
+      if(!(state.orders || []).length && !(state.buyList || []).length){ UI.toast('先点几道菜，清单才有内容', 'amber'); return; }
+      text = this.shopText();
+    }else{
+      const r = (state.recipes || []).find(x => x.id === id); if(!r) return;
+      const cmp = compare(r), lack = cmp.missing.map(c => c.name);   // compare 返回的是汇总对象，用 .rows/.missing
+      text = [`【${r.name}】${r.desc || ''}`,
+        (r.time ? `用时约 ${r.time} 分钟 · ${r.servings || 2} 人份` : ''),
+        '', '食材：', ...cmp.rows.map(c => `- ${c.name} ${c.qty || ''}${c.unit || ''}${c.status === 'miss' ? '（要买）' : c.status === 'near' ? '（冰箱不够，补一些）' : ''}`),
+        '', '做法：', ...(r.steps || []).map((t, i) => `${i + 1}. ${t}`),
+        r.note ? `\n提醒：${r.note}` : '',
+        '', lack.length ? `还缺 ${lack.length} 样：${lack.join('、')}` : '食材冰箱里都齐了',
+        `—— 来自「天长地久小厨房」，${ME.name} 分享`].filter(Boolean).join('\n');
+    }
+    const done = () => UI.toast('已复制，粘贴到家庭群就行', 'sage');
+    if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(text).then(done, () => this.fallbackCopy(text, done)); }
+    else this.fallbackCopy(text, done);
+    Modal.open({ title: kind === 'shop' ? '发给家人的采购清单' : '分享给家人',
+      body:`<pre class="share-pre">${esc(text)}</pre><p class="muted mt8">已同步复制到剪贴板；若没成功，长按上方文字手动复制。</p>` });
+  },
+  needs(){ return View.needs(); },
+  addBuy(name, qty, unit, from){
+    if((state.buyList || []).some(b => normalize(b.name) === normalize(name))){ UI.toast(`「${name}」已经在清单里了`, 'amber'); return; }
+    Store.mutate(s => { (s.buyList = s.buyList || []).push({ id:uid('b'), name, qty:num(qty) || 1, unit:unit || '', from:from || '手动添加', by:memberIdx() }); });
+    UI.toast(`「${name}」已记入采购清单`, 'sage');
+  },
+  addAllBuy(dishId){
+    const r = (state.recipes || []).find(x => x.id === dishId); if(!r) return;
+    const miss = compare(r).missing;
+    Store.mutate(s => {
+      s.buyList = s.buyList || [];
+      miss.forEach(m => {
+        if(!s.buyList.some(b => normalize(b.name) === normalize(m.name)))
+          s.buyList.push({ id:uid('b'), name:m.name, qty:num(m.short) || num(m.qty) || 1, unit:m.unit || '', from:r.name, by:memberIdx() });
+      });
+    });
+    UI.toast(`已把 ${miss.length} 样缺的食材加进清单`, 'sage');
+  },
+  /* 「买好了」= 直接进冰箱（按缺口数量入库，并清掉清单里的对应项） */
+  bought(name){
+    const need = View.needs().find(x => normalize(x.name) === normalize(name));
+    const man = (state.buyList || []).find(b => normalize(b.name) === normalize(name));
+    const qty = (num(need && need.short)) || (num(man && man.qty)) || 1;
+    const unit = (need && need.unit) || (man && man.unit) || '份';
+    Store.mutate(s => {
+      const ex = s.stock.find(i => normalize(i.name) === normalize(name));
+      if(ex) ex.qty = (num(ex.qty) || 0) + qty;
+      else s.stock.push({ id:uid('s'), name, qty, unit, group:'其他', exp:'' });
+      s.buyList = (s.buyList || []).filter(b => normalize(b.name) !== normalize(name));
+    });
+    UI.toast(`「${name}」已入库，比对结果已刷新`, 'sage');
+  },
+
+  /* 冰箱 */
+  stockQty(id, d){
+    Store.mutate(s => {
+      const it = s.stock.find(x => x.id === id); if(!it) return;
+      it.qty = Math.max(0, (num(it.qty) || 0) + d * this.stepOf(it));
+      if(it.qty === 0) s.stock = s.stock.filter(x => x.id !== id);
+    });
+  },
+  stepOf(it){ const q = num(it.qty) || 0; return q >= 200 ? 50 : q >= 20 ? 5 : 1; },
+
+  /* ---------- 编辑：分类管理 ---------- */
+  /** 分类管理弹窗的行 HTML（抽出来是为了增删/排序后就地重绘，不必关掉重开） */
+  catRows(){
+    return state.catOrder.map(k => {
+      const c = state.cats[k], n = (state.recipes || []).filter(r => r.cat === k).length;
+      return `<div class="cat-edit" data-ck="${k}">
+        <input type="color" value="${esc(c.color)}" data-ckey="color" aria-label="${esc(c.name)}的颜色">
+        <input type="text" value="${esc(c.name)}" data-ckey="name" aria-label="分类名称">
+        <span class="cc">${n} 道菜</span>
+        <span class="ord">
+          <button type="button" data-cmove="${k}" data-d="-1" aria-label="上移 ${esc(c.name)}">↑</button>
+          <button type="button" data-cmove="${k}" data-d="1" aria-label="下移 ${esc(c.name)}">↓</button>
+          <button type="button" data-cdel="${k}" class="s-del" aria-label="删除分类 ${esc(c.name)}">${ICON.trash}</button>
+        </span>
+      </div>`;
+    }).join('');
+  },
+  /** 弹窗开着就重绘行；重绘前先把已输入但未保存的名字/颜色回写 state，避免改动丢失 */
+  catRefresh(){
+    if(!$('#catRows')) return;
+    $$('#modalBody .cat-edit').forEach(row => {
+      const k = row.dataset.ck, c = state.cats[k]; if(!c) return;
+      const v = row.querySelector('[data-ckey=name]').value.trim();
+      const col = row.querySelector('[data-ckey=color]').value;
+      if(v) c.name = v;
+      if(col) c.color = col;
+    });
+    const box = $('#catRows'); if(box) box.innerHTML = this.catRows();
+  },
+  catEditor(){
+    const rows = this.catRows();
+    Modal.open({
+      title:'管理分类',
+      body:`<p class="panel-tip">改名后菜谱列表的标签同步变化；用 ↑↓ 调整顺序，删除时分类里的菜会移到「主食」。<br>改完名字记得点「保存」。</p>
+        <div id="catRows">${rows}</div>
+        <div class="form-grid" style="margin-top:16px;padding-top:14px;border-top:2px solid var(--ink)">
+          <div class="field"><label for="ncName">新增分类名称</label><input id="ncName" placeholder="例：烘焙"></div>
+          <div class="field" style="flex:.5"><label for="ncColor">颜色</label><input id="ncColor" type="color" value="#8B5E3C" style="min-height:46px;padding:2px"></div>
+          <button type="button" class="btn sage" style="align-self:end" data-cat-add="1">添加</button>
+        </div>`,
+      foot:`<button type="button" class="btn ghost" data-close="1">关闭</button><button type="button" class="btn primary" data-cat-save="1">保存</button>`
+    });
+  },
+  saveCats(){
+    const map = {};
+    $$('.cat-edit').forEach(el => {
+      const k = el.dataset.ck;
+      map[k] = { name: el.querySelector('[data-ckey=name]').value.trim() || state.cats[k].name,
+                 color: el.querySelector('[data-ckey=color]').value, desc: state.cats[k].desc || '' };
+    });
+    Store.mutate(s => { Object.keys(map).forEach(k => { s.cats[k] = Object.assign({}, s.cats[k], map[k]); }); });
+    Modal.close(); UI.toast('分类已更新', 'sage');
+  },
+
+  /* ---------- 编辑：菜谱 ---------- */
+  dishEditor(id){
+    const r = id ? (state.recipes || []).find(x => x.id === id) : null;
+    const d = r || { name:'', desc:'', note:'', cat:(cur.cat === 'all' ? state.catOrder[0] : cur.cat), img:IMG('1518977676601-b57c2e6b0b76'), time:15, servings:2, difficulty:'简单', ingredients:[], steps:[] };
+    Modal.open({
+      title: r ? '编辑菜谱' : '写新菜谱',
+      body:`<div class="form-grid">
+        <div class="field"><label for="dName">菜名</label><input id="dName" value="${esc(d.name)}" required placeholder="例：西红柿炒鸡蛋"></div>
+        <div class="field" style="flex:.7"><label for="dCat">分类</label><select id="dCat">${state.catOrder.map(k => `<option value="${k}" ${k === d.cat ? 'selected' : ''}>${esc(state.cats[k].name)}</option>`).join('')}</select></div>
+        <div class="field" style="flex:.45"><label for="dTime">用时（分）</label><input id="dTime" type="number" min="1" value="${d.time}"></div>
+        <div class="field" style="flex:.45"><label for="dServe">人份</label><input id="dServe" type="number" min="1" value="${d.servings}"></div>
+        <div class="field"><label for="dDiff">难度</label><input id="dDiff" value="${esc(d.difficulty || '简单')}"></div>
+        <div class="field span2"><label for="dImg">图片链接（可选，留空则显示菜名占位）</label><input id="dImg" value="${esc(d.img)}" placeholder="https://…"></div>
+        <div class="field span2"><label for="dDesc">一句话介绍</label><textarea id="dDesc" placeholder="这道菜的讲究在哪，家人一看就懂">${esc(d.desc)}</textarea></div>
+        <div class="field span2"><label for="dNote">备注（可选，如「少盐」「不要香菜」）</label><input id="dNote" value="${esc(d.note || '')}" placeholder="给家人的提醒，会显示在详情页顶部"></div>
+        <div class="field span2"><label>所需食材（名称 / 数量 / 单位）</label>
+          <div id="ingRows">${(d.ingredients || []).length ? '' : this.ingRow({})}</div>
+          <button type="button" class="btn sm ghost" style="margin-top:8px" data-ing-add="1">${ICON.plus} 加一种食材</button>
+          <p class="legend" style="margin-top:6px">食材名请和冰箱里的叫法一致（如「西红柿」而非「番茄」），比对才准。</p></div>
+        <div class="field span2"><label for="dSteps">做法步骤（每行一步）</label>
+          <textarea id="dSteps" style="min-height:130px" placeholder="西红柿去皮切滚刀块&#10;鸡蛋加盐打散炒至七成熟">${esc((d.steps || []).join('\n'))}</textarea></div>
+      </div>`,
+      foot:`${r ? `<button type="button" class="btn danger" data-dish-del="${r.id}" style="flex:0 0 auto">${ICON.trash} 删除</button>` : ''}
+        <button type="button" class="btn ghost" data-close="1">取消</button>
+        <button type="button" class="btn primary" data-dish-save="${r ? r.id : ''}">${r ? '保存修改' : '加进菜谱库'}</button>`
+    });
+    const box = $('#ingRows');
+    (d.ingredients || []).forEach(g => box.insertAdjacentHTML('beforeend', this.ingRow(g)));
+    if(!r || d.custom) $('#modalTitle').textContent = r ? '编辑这道菜' : '自定义添加菜品';
+  },
+  UNITS:['克','毫升','个','根','片','勺','碗','盒','把','张','适量'],
+  ingRow(g){
+    const dl = $('#unitList') ? '' : '<datalist id="unitList">' + this.UNITS.map(u => `<option value="${u}">`).join('') + '</datalist>';
+    return dl + `<div class="edit-row"><input class="e-n" value="${esc(g.name || '')}" placeholder="食材名" aria-label="食材名称">
+      <input class="e-q" type="number" min="0" step="0.1" value="${g.qty ?? ''}" placeholder="数量" aria-label="数量">
+      <input class="e-u" value="${esc(g.unit || '')}" list="unitList" placeholder="单位" aria-label="单位">
+      <button type="button" class="e-x" data-ing-del="1" aria-label="删除这一行">${ICON.x}</button></div>`;
+  },
+  saveDish(id){
+    const name = $('#dName').value.trim();
+    if(!name){ UI.toast('菜名不能空着', 'amber'); $('#dName').focus(); return; }
+    const ings = $$('#ingRows .edit-row').map(el => ({
+      name: el.querySelector('.e-n').value.trim(), qty: num(el.querySelector('.e-q').value), unit: el.querySelector('.e-u').value.trim()
+    })).filter(g => g.name);
+    if(!ings.length){ UI.toast('至少填一种食材，不然没法比对', 'amber'); return; }
+    const old = id ? (state.recipes.find(x => x.id === id) || {}) : {};
+    const payload = {
+      name, cat: $('#dCat').value, time: num($('#dTime').value) || 15, servings: num($('#dServe').value) || 2,
+      difficulty: $('#dDiff').value.trim() || '简单', img: $('#dImg').value.trim() || IMG('1518977676601-b57c2e6b0b76'),
+      desc: $('#dDesc').value.trim(), note: $('#dNote') ? $('#dNote').value.trim() : (old.note || ''),
+      ingredients: ings, steps: $('#dSteps').value.split('\n').map(s => s.trim()).filter(Boolean)
+    };
+    Store.mutate(s => {
+      if(id){ const r = s.recipes.find(x => x.id === id); Object.assign(r, payload); }  // 订单存的是 dishId，改完自动同步
+      else s.recipes.push(Object.assign({ id:uid('r'), likes:0, fav:false, author:ME.name, custom:true, by:memberIdx() }, payload));
+      // 今日菜单只存 dishId，所以编辑已有菜品会自动反映到订单与采购汇总
+    });
+    Modal.close(); UI.toast(id ? '菜谱已更新' : '新菜谱已加进菜谱库', 'sage');
+  },
+  delDish(id){
+    const r = (state.recipes || []).find(x => x.id === id);
+    Store.mutate(s => {
+      s.recipes = s.recipes.filter(x => x.id !== id);
+      s.orders = (s.orders || []).filter(o => o.dishId !== id);
+    });
+    Modal.close(); View.closeSheet(); UI.toast(`已删除「${r ? r.name : ''}」`, 'amber');
+  },
+
+  /* ---------- 编辑：冰箱条目 ---------- */
+  stockEditor(id){
+    const it = (state.stock || []).find(x => x.id === id); if(!it) return;
+    Modal.open({
+      title:`编辑「${it.name}」`,
+      body:`<div class="form-grid">
+        <div class="field"><label for="eName">名称</label><input id="eName" value="${esc(it.name)}"></div>
+        <div class="field" style="flex:.6"><label for="eQty">数量</label><input id="eQty" type="number" min="0" step="0.1" value="${it.qty}"></div>
+        <div class="field" style="flex:.45"><label for="eUnit">单位</label><input id="eUnit" value="${esc(it.unit || '')}"></div>
+        <div class="field" style="flex:.7"><label for="eGroup">归类</label><select id="eGroup">${['蔬菜','荤菜','主食','调味','其他'].map(g => `<option ${g === it.group ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+        <div class="field"><label for="eExp">保质期至</label><input id="eExp" type="date" value="${esc(it.exp || '')}"></div>
+        <div class="field span2"><p class="legend">用量按钮按库存规模自动决定步长：大于一份 200 每次 ±50，20 以上 ±5，其余 ±1。</p></div>
+      </div>`,
+      foot:`<button type="button" class="btn danger" data-stock-del="${it.id}" style="flex:0 0 auto">${ICON.trash} 删除</button>
+        <button type="button" class="btn ghost" data-close="1">取消</button>
+        <button type="button" class="btn primary" data-stock-save="${it.id}">保存</button>`
+    });
+  },
+  saveStock(id){
+    Store.mutate(s => {
+      const it = s.stock.find(x => x.id === id); if(!it) return;
+      it.name = $('#eName').value.trim() || it.name;
+      it.qty = num($('#eQty').value) ?? it.qty;
+      it.unit = $('#eUnit').value.trim();
+      it.group = $('#eGroup').value;
+      it.exp = $('#eExp').value || '';
+    });
+    Modal.close(); UI.toast('库存已更新', 'sage');
+  },
+  delStock(id){
+    Store.mutate(s => { s.stock = s.stock.filter(x => x.id !== id); });
+    Modal.close(); UI.toast('已清出冰箱', 'amber');
+  }
+};
+
+/* ############################################################################
+ * H. 事件绑定 + 启动
+ *    统一用 document 级事件委托：动态渲染的卡片、行、按钮不需要重复绑监听。
+ * ##########################################################################*/
+function goto(view){
+  cur.view = view;
+  $$('.view').forEach(v => v.classList.remove('on'));
+  $(`#view${view[0].toUpperCase()}${view.slice(1)}`).classList.add('on');
+  $$('.nav-tab').forEach(t => t.setAttribute('aria-current', t.dataset.view === view ? 'page' : 'false'));
+  View.all();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+document.addEventListener('click', e => {
+  const T = sel => e.target.closest(sel);
+  let el;
+
+  if((el = T('#syncbar'))) { el.classList.toggle('open'); el.dataset.pinned = el.classList.contains('open') ? '1' : ''; return; }
+  if((el = T('[data-close]')) || T('#modalClose')) return Modal.close();   // × 按钮此前没接上，点了没反应
+  if((el = T('#modal')) && el === e.target && !T('.modal-card')) return Modal.close();   // 点遮罩关
+  if(T('#scrim')) { View.closeSheet(); return; }
+  if((el = T('#btnCloseSheet'))) return View.closeSheet();
+  if((el = T('.nav-tab'))) return goto(el.dataset.view);
+  if((el = T('[data-goto]'))) return goto(el.dataset.goto);
+  if((el = T('#btnSyncHelp')) || T('#btnSyncHelp2')) return Sync.help();
+  /* 随机选 */
+  if((el = T('#btnDice')) || T('#btnDiceM')) return Action.diceOpen();
+  /* 分类：左侧点击 → 平滑滚到右侧对应锚点 */
+  if((el = T('.cat-item'))){
+    cur.cat = el.dataset.cat; cur.q = ''; $('#q').value = '';
+    $$('.cat-item').forEach(b => b.setAttribute('aria-selected', b.dataset.cat === cur.cat));
+    return Action.jump(cur.cat);
+  }
+  /* 分类管理 */
+  if((el = T('#btnManageCat')) || T('#btnAddCat')) return Action.catEditor();
+  if((el = T('[data-cat-save]'))) return Action.saveCats();
+  if((el = T('[data-cat-add]'))) return Action.catAdd();
+  if((el = T('[data-cmove]'))) return Action.catMove(el.dataset.cmove, +el.dataset.d);
+  if((el = T('[data-cdel]'))) return Action.catDel(el.dataset.cdel);
+  /* 自定义菜品：FAB / 顶部按钮 / 空状态按钮 —— 统一入口 */
+  if((el = T('#btnFab')) || T('#btnNewDishTop') || T('[data-new-dish]')) return Action.dishEditor(null);
+  if((el = T('[data-ing-add]'))) return $('#ingRows').insertAdjacentHTML('beforeend', Action.ingRow({}));
+  if((el = T('[data-ing-del]'))) return el.closest('.edit-row').remove();
+  if((el = T('[data-dish-save]'))) return Action.saveDish(el.dataset.dishSave || null);
+  if((el = T('[data-dish-del]'))) return Action.delDish(el.dataset.dishDel);
+  if((el = T('[data-edit-dish]')) || T('#btnEditDish')) return Action.dishEditor(View.openId);
+  /* 冰箱 */
+  if((el = T('[data-stock-save]'))) return Action.saveStock(el.dataset.stockSave);
+  if((el = T('[data-stock-del]'))) return Action.delStock(el.dataset.stockDel);
+  if((el = T('[data-stock-edit]'))) return Action.stockEditor(el.dataset.stockEdit);
+  if((el = T('[data-sq]'))) return Action.stockQty(el.dataset.sq, +el.dataset.d);
+  if((el = T('[data-focus-stock]'))) { goto('pantry'); setTimeout(() => $('#stName').focus(), 260); return; }
+  /* 订单 */
+  if((el = T('[data-oq]'))) return Action.setOrderQty(el.dataset.oq, +el.dataset.d);
+  if((el = T('[data-order-del]'))) return Action.delOrder(el.dataset.orderDel);
+  /* 卡片互动 */
+  if((el = T('[data-fav]'))) return Action.toggleFav(el.dataset.fav);
+  if((el = T('[data-like]'))) return Action.toggleLike(el.dataset.like);
+  if((el = T('[data-add]'))) return Action.addOrder(el.dataset.add);
+  /* 采购清单 */
+  if((el = T('[data-addbuy]'))) { const [n,q,u] = el.dataset.addbuy.split('|'); return Action.addBuy(n,q,u); }
+  if((el = T('[data-addallbuy]'))) return Action.addAllBuy(el.dataset.addallbuy);
+  if((el = T('[data-bought]'))) return Action.bought(el.dataset.bought);
+  if((el = T('[data-skip]'))) return Action.skipBuy(el.dataset.skip);
+  if((el = T('[data-delbuy]'))) return Store.mutate(st => { st.buyList = st.buyList.filter(b => b.id !== el.dataset.delbuy); });
+  if((el = T('[data-clear-shop]'))) return Action.clearManual();
+  if((el = T('[data-copy]'))) return Action.copyShop();
+  if((el = T('[data-share]'))) return Action.share(el.dataset.share === 'shop' ? 'shop' : 'dish', el.dataset.share !== 'shop' ? el.dataset.share : null);
+  if((el = T('[data-shop]'))) {
+    cur.shop = el.dataset.shop;
+    $$('[data-shop]').forEach(b => b.setAttribute('aria-pressed', b.dataset.shop === cur.shop));
+    return View.shop();
+  }
+  /* 我的：身份切换 / 添加成员 / 设置 */
+  if((el = T('#meChip'))) return goto('profile');
+  if((el = T('[data-member]'))) return Action.useMember(+el.dataset.member);
+  if((el = T('[data-member-add]'))) return Action.addMember();
+  if(T('#cfgAnimate')) { const c = $('#cfgAnimate'); if(e.target === c) return Action.setCfg('animate', c.checked); }
+  if(T('#cfgSku')) { const c = $('#cfgSku'); if(e.target === c) return Action.setCfg('strictUnit', c.checked); }
+  if((el = T('#btnWipe'))) return Action.wipe();
+  if((el = T('#btnResetDemo'))) return Action.resetDemo();
+  if((el = T('[data-open]'))) return View.sheet(el.dataset.open);
+  if((el = T('.dish'))) return View.sheet(el.dataset.open);
+});
+
+/* 键盘：卡片可 Enter 打开、Esc 关闭浮层 */
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape'){ if($('#modal').classList.contains('on')) Modal.close(); else if(View.openId) View.closeSheet(); }
+  if((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('dish')){ e.preventDefault(); View.sheet(e.target.dataset.open); }
+});
+
+/* 补充的 Action 片段（随机选弹窗 / 收藏点赞 / 分类增删 / 成员切换 / 忽略项） */
+Object.assign(Action, {
+  diceOpen(){
+    const pool = (state.recipes || []).slice();
+    if(!pool.length){ UI.toast('菜谱库是空的，先写几道菜', 'amber'); return; }
+    Modal.open({
+      title:'今天吃什么',
+      body:`<div class="wheel">
+          <div class="wheel-name" id="wheelName">${esc(pool[0].name)}</div>
+          <div class="wheel-sub" id="wheelSub"></div>
+          <p class="wheel-hint" id="wheelHint">范围：全库 ${pool.length} 道菜 · ${esc(ME.name)} 在拿主意</p>
+        </div>`,
+      foot:`<button type="button" class="btn ghost" data-close="1">再等等</button>
+            <button type="button" class="btn" data-wheel="again">换一个</button>
+            <button type="button" class="btn primary" data-wheel="go" id="wheelGo">就吃这个，加入菜单</button>`
+    });
+    this._pool = pool;
+    this._dice = pool[Math.floor(Math.random() * pool.length)].id;
+    this.spin();
+  },
+  spin(){
+    const pool = this._pool, nameEl = $('#wheelName'), subEl = $('#wheelSub'), go = $('#wheelGo');
+    if(!nameEl || !pool || !pool.length) return;
+    /* 「我的 → 设置」里可以关掉转盘动画：关了立刻定格出结果 */
+    if(!(state.cfg && state.cfg.animate)){ this.land(pool[Math.floor(Math.random() * pool.length)]); return; }
+    let tick = 0;
+    nameEl.classList.add('spin'); subEl.textContent = '正在替你做决定…'; go.disabled = true;
+    const step = () => {
+      nameEl.textContent = pool[Math.floor(Math.random() * pool.length)].name;
+      if(++tick < 22){ setTimeout(step, 45 + Math.pow(tick / 22, 3) * 210); }   // 逐渐减速，模拟转盘手感
+      else this.land(pool[Math.floor(Math.random() * pool.length)]);
+    };
+    step();
+  },
+  /** 定格：写出结果 + 显示这道菜的库存缺口 */
+  land(r){
+    const nameEl = $('#wheelName'), subEl = $('#wheelSub'), go = $('#wheelGo');
+    if(!nameEl || !r) return;
+    this._dice = r.id;
+    nameEl.textContent = r.name; nameEl.classList.remove('spin');
+    const c = compare(r), mem = memberOf(r.by != null ? r.by : r.author);
+    subEl.innerHTML = `${esc((state.cats[r.cat] || {}).name || '未分类')} · ${r.time} 分钟 · ${mem.name} 做的<br>${
+      c.allReady ? '<b style="color:var(--ok)">冰箱食材全齐，直接开火</b>' : `<b style="color:var(--bad)">还缺 ${c.need} 样，可一键加进采购清单</b>`}`;
+    if(go) go.disabled = false;
+  },
+  /** 左侧点分类 → 右侧平滑滚到该分组锚点；期间锁住滚动监听 900ms，避免反向高亮抢走选中态 */
+  jump(k){
+    if(k === 'all'){ window.scrollTo({ top:0, behavior:'smooth' }); return; }
+    const g = document.getElementById('cat-' + k);
+    if(!g){ UI.toast('这个分类暂时还没有菜，可以先自定义添加', 'amber'); return; }
+    View._lock = true;                        // 锁的是 View 的滚动监听，不是 Action 自己
+    clearTimeout(View._unlock);
+    const offset = window.innerWidth <= 860 ? 66 : 78;    // 页头 + 吸顶分组标题高度
+    const y = g.getBoundingClientRect().top + window.scrollY - offset;
+    window.scrollTo({ top:Math.max(0, y), behavior:(state.cfg && state.cfg.animate === false) ? 'auto' : 'smooth' });
+    View._unlock = setTimeout(() => { View._lock = false; }, 1100);
+  },
+  toggleFav(id){
+    Store.mutate(s => { const r = s.recipes.find(x => x.id === id); if(r) r.fav = !r.fav; });
+    UI.toast((state.recipes.find(x => x.id === id) || {}).fav ? '已收藏，家人也看得到' : '已取消收藏');
+    if(View.openId) View.sheet(View.openId, { silent:true });  // 抽屉归 View 管，Action 里的 this 不是 View
+  },
+  toggleLike(id){
+    Store.mutate(s => {
+      const r = s.recipes.find(x => x.id === id); if(!r) return;
+      r.liked = !r.liked; r.likes = Math.max(0, (r.likes || 0) + (r.liked ? 1 : -1));
+    });
+    if(View.openId) View.sheet(View.openId, { silent:true });  // 抽屉归 View 管，Action 里的 this 不是 View
+  },
+  catAdd(){
+    const n = ($('#ncName') && $('#ncName').value.trim());
+    if(!n){ UI.toast('先写个分类名', 'amber'); return; }
+    const k = uid('c');
+    Store.mutate(s => { s.cats[k] = { name:n, color:($('#ncColor') || {}).value || '#8B5E3C', desc:'' }; s.catOrder.push(k); });
+    $('#ncName').value = ''; this.catRefresh(); UI.toast(`已新增分类「${n}」`, 'sage');
+  },
+  catMove(k, d){
+    Store.mutate(s => {
+      const i = s.catOrder.indexOf(k), j = i + d;
+      if(i < 0 || j < 0 || j >= s.catOrder.length) return;
+      s.catOrder.splice(i, 1); s.catOrder.splice(j, 0, k);
+    });
+    this.catRefresh();
+  },
+  catDel(k){
+    const c = state.cats[k], n = (state.recipes || []).filter(r => r.cat === k).length;
+    if(state.catOrder.length <= 1){ UI.toast('至少保留一个分类', 'amber'); return; }
+    if(n && !confirm(`「${c.name}」里有 ${n} 道菜，删除后它们会移到「主食」，继续吗？`)) return;
+    Store.mutate(s => {
+      const to = s.cats.staple && k !== 'staple' ? 'staple' : Object.keys(s.cats).find(x => x !== k);
+      s.recipes.forEach(r => { if(r.cat === k) r.cat = to; });
+      delete s.cats[k]; s.catOrder = s.catOrder.filter(x => x !== k);
+      if(cur.cat === k) cur.cat = to;
+    });
+    this.catRefresh(); UI.toast('分类已删除', 'amber');
+  },
+  clearManual(){
+    Store.mutate(s => { s.buyList = []; });
+    UI.toast('已清空手动记的项目', 'amber');
+  },
+  resetDemo(){
+    if(!confirm('清空今日菜单和采购清单？菜谱与冰箱保持不变。')) return;
+    Store.mutate(s => { s.orders = []; s.buyList = []; });
+    UI.toast('今日菜单已清空', 'sage');
+  },
+  wipe(){
+    if(!confirm('确定清除所有数据？菜谱、冰箱、菜单都会回到初始示例，无法恢复。')) return;
+    localStorage.removeItem(KEY);
+    if(Sync.bc) Sync.bc.postMessage({ kind:'wipe', from:ME.name });
+    state = clone(SEED); state.members = clone(MEMBERS); state.cfg = { animate:true, strictUnit:false };
+    Store.persist();
+    cur.cat = 'all'; cur.q = ''; $('#q').value = '';
+    View.all(); paintMe();
+    UI.toast('已清空并重置为示例数据', 'amber');
+  },
+  skipBuy(name){
+    // "这道先不做"：把相关菜从今日菜单撤下，清单随之重算
+    Store.mutate(s => {
+      const hit = s.recipes.filter(r => (r.ingredients || []).some(g => normalize(g.name) === normalize(name))).map(r => r.id);
+      s.orders = (s.orders || []).filter(o => !hit.includes(o.dishId));
+    });
+    UI.toast(`已从今日菜单撤下用到「${name}」的菜`, 'amber');
+  },
+  useMember(i){
+    const m = state.members[i]; if(!m || m.name === ME.name) return;
+    ME = m; paintMe();
+    try{ sessionStorage.setItem(SEAT, i); localStorage.setItem(SEAT + '-last', i); }catch(_){}
+    /* 身份只影响后续写入归属，不动数据本身，因此 localOnly 不广播 */
+    Store.mutate(st => {}, { localOnly:true });
+    View.all();
+    UI.toast(`已切换为「${m.name}」，之后点的菜都记在这位名下`, 'sage');
+  },
+  addMember(){
+    const inp = $('#newMem'), name = inp && inp.value.trim();
+    if(!name){ UI.toast('先写个昵称', 'amber'); return; }
+    if(state.members.some(m => m.name === name)){ UI.toast(`已经有「${name}」了`, 'amber'); return; }
+    const palette = ['#B5541A','#3C6588','#527C4C','#6E4527','#8A3F6B','#2F6E66','#8A6614','#4E428C'];
+    Store.mutate(st => {
+      st.members.push({ name, color: palette[st.members.length % palette.length], ini: name.slice(-1) });
+    });
+    UI.toast(`已把「${name}」加进家庭`, 'sage');
+  },
+  setCfg(k, v){
+    Store.mutate(st => { st.cfg[k] = v; }, { localOnly:true });
+    UI.toast(k === 'animate' ? (v ? '随机选恢复转盘动画' : '随机选改为直接出结果') : (v ? '单位不同将判为需购买' : '单位不同按有货放行'), 'sage');
+    View.all();
+    if(View.openId) View.sheet(View.openId, { silent:true });
+  },
+});
+
+function paintMe(){
+  $('#meAv').textContent = ME.ini;
+  $('#meAv').style.background = ME.color;
+  $('#meName').textContent = ME.name;
+}
+
+/* 表单：添加食材 / 手动加购 */
+function bindForms(){
+  $('#stockForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const f = e.target, name = $('#stName').value.trim();
+    if(!name) return;
+    const it = (state.stock || []).find(x => normalize(x.name) === normalize(name));
+    Store.mutate(s => {
+      if(it){ it.qty = (num(it.qty) || 0) + (num($('#stQty').value) || 1); if($('#stExp').value) it.exp = $('#stExp').value; }
+      else s.stock.push({ id:uid('s'), name, qty:num($('#stQty').value) || 1, unit:$('#stUnit').value.trim() || '份',
+                          group:$('#stGroup').value, exp:$('#stExp').value || '' });
+    });
+    f.reset(); $('#stUnit').value = '个'; $('#stGroup').value = '其他';
+    UI.toast(`「${name}」已放进冰箱，比对结果已重算`, 'sage');
+  });
+  $('#manualBuyForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const n = $('#mbName').value.trim(); if(!n) return;
+    Action.addBuy(n, $('#mbQty').value, $('#mbUnit').value, '手动添加');
+    $('#mbName').value = ''; $('#mbQty').value = '1'; $('#mbUnit').value = '个';
+  });
+  $('#q').addEventListener('input', e => { cur.q = e.target.value.trim(); View.menu(); });
+  $('#chipFav').addEventListener('click', e => { cur.fav = !cur.fav; e.currentTarget.setAttribute('aria-pressed', cur.fav); View.menu(); });
+  $('#chipReady').addEventListener('click', e => { cur.ready = !cur.ready; e.currentTarget.setAttribute('aria-pressed', cur.ready); View.menu(); });
+  document.addEventListener('click', e => {
+    const w = e.target.closest('[data-wheel]');
+    if(!w) return;
+    if(w.dataset.wheel === 'again'){ const p = Action._pool.filter(x => x.id !== Action._dice); Action._pool = p.length ? p : Action._pool; Action.spin(); }
+    else if(!w.disabled && Action._dice){ Modal.close(); Action.addOrder(Action._dice); }
+  });
+}
+
+/* 启动：读盘 → 画界面 → 开同步通道 */
+Store.init();
+paintMe();
+bindForms();
+View.all();
+Sync.init();
+// 没有 BroadcastChannel 的浏览器走 storage 事件兜底，展开条子告知一次，避免用户以为同步坏了
+if(!('BroadcastChannel' in window)){ $('#syncbar').classList.add('open'); $('#syncbar').dataset.pinned = '1';
+  UI.sync('本页用 localStorage 事件同步（浏览器无 BroadcastChannel）', true); }
+console.log('%c天长地久小厨房', 'font:700 16px/1.4 serif;color:#D26A24', '· 单文件原型 · 原生 JS · BroadcastChannel 同步已就绪');
+console.log('演示多人协作：把这个页面在第二个标签页打开，两侧任意改动都会实时同步。');
+</script>
+</body>
+</html>
